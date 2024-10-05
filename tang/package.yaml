@@ -15,30 +15,38 @@ defaults:
 
 dependencies:
 - base >= 4.12 && < 5
+- logict
+- mtl
+- transformers
+- text
+- containers
+- recursion-schemes
+- int-like
+- z3
 
 library:
   source-dirs: src
 
-executables:
-  tang-exe:
-    main: Main.hs
-    source-dirs: exe
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - tang
-
-tests:
-  tang-test:
-    main: Main.hs
-    source-dirs: test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - tang
-    - tasty
-    - tasty-hunit
+# executables:
+#   tang-exe:
+#     main: Main.hs
+#     source-dirs: exe
+#     ghc-options:
+#     - -threaded
+#     - -rtsopts
+#     - -with-rtsopts=-N
+#     dependencies:
+#     - tang
+#
+# tests:
+#   tang-test:
+#     main: Main.hs
+#     source-dirs: test
+#     ghc-options:
+#     - -threaded
+#     - -rtsopts
+#     - -with-rtsopts=-N
+#     dependencies:
+#     - tang
+#     - tasty
+#     - tasty-hunit

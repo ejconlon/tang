@@ -3,7 +3,25 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: int-like-0.1.2@sha256:447b8bc1a137884e178067376df20a1477ebfc753e0336a97ddb91e03dc9ec78,3081
+    pantry-tree:
+      sha256: d3fd5a5c04278ea29b78d60a52db1be7e8b7d2af6caccb4868260665066633f8
+      size: 510
+  original:
+    hackage: int-like-0.1.2
+- completed:
+    commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
+    git: git@github.com:IagoAbal/haskell-z3
+    name: z3
+    pantry-tree:
+      sha256: 991b51749ed89306e80e1bc62c97539991b1a4b2bfc8aae9d6f98480200f48d5
+      size: 2289
+    version: 411.0.1
+  original:
+    commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
+    git: git@github.com:IagoAbal/haskell-z3
 snapshots:
 - completed:
     sha256: 6a553c5fa4f211a9b639da5e5359124a93627852dd9967bed202fdd71b25f15e
