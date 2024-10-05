@@ -1,0 +1,44 @@
+name: tang
+version: 0.1.0
+
+github: ejconlon/tang
+license: BSD3
+author: Eric Conlon
+maintainer: ejconlon@gmail.com
+copyright: (c) 2024 Eric Conlon
+synopsis: ecta implementation
+description: Please see the README on GitHub at <https://github.com/ejconlon/tang#readme>
+tested-with: GHC == 9.6.6
+
+defaults:
+  local: ../defaults.yaml
+
+dependencies:
+- base >= 4.12 && < 5
+
+library:
+  source-dirs: src
+
+executables:
+  tang-exe:
+    main: Main.hs
+    source-dirs: exe
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - tang
+
+tests:
+  tang-test:
+    main: Main.hs
+    source-dirs: test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - tang
+    - tasty
+    - tasty-hunit

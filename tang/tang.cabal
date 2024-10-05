@@ -1,0 +1,149 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           tang
+version:        0.1.0
+synopsis:       ecta implementation
+description:    Please see the README on GitHub at <https://github.com/ejconlon/tang#readme>
+homepage:       https://github.com/ejconlon/tang#readme
+bug-reports:    https://github.com/ejconlon/tang/issues
+author:         Eric Conlon
+maintainer:     ejconlon@gmail.com
+copyright:      (c) 2024 Eric Conlon
+license:        BSD3
+build-type:     Simple
+tested-with:
+    GHC == 9.6.6
+
+source-repository head
+  type: git
+  location: https://github.com/ejconlon/tang
+
+library
+  exposed-modules:
+      Tang.Main
+  other-modules:
+      Paths_tang
+  hs-source-dirs:
+      src
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveFunctor
+      DeriveFoldable
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      LambdaCase
+      KindSignatures
+      MultiParamTypeClasses
+      MultiWayIf
+      PatternSynonyms
+      Rank2Types
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      TupleSections
+      TypeApplications
+      TypeOperators
+      TypeFamilies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -fno-warn-unused-top-binds
+  build-depends:
+      base >=4.12 && <5
+  default-language: GHC2021
+
+executable tang-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_tang
+  hs-source-dirs:
+      exe
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveFunctor
+      DeriveFoldable
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      LambdaCase
+      KindSignatures
+      MultiParamTypeClasses
+      MultiWayIf
+      PatternSynonyms
+      Rank2Types
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      TupleSections
+      TypeApplications
+      TypeOperators
+      TypeFamilies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -fno-warn-unused-top-binds -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.12 && <5
+    , tang
+  default-language: GHC2021
+
+test-suite tang-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_tang
+  hs-source-dirs:
+      test
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveFunctor
+      DeriveFoldable
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      LambdaCase
+      KindSignatures
+      MultiParamTypeClasses
+      MultiWayIf
+      PatternSynonyms
+      Rank2Types
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      TupleSections
+      TypeApplications
+      TypeOperators
+      TypeFamilies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -fno-warn-unused-top-binds -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.12 && <5
+    , tang
+    , tasty
+    , tasty-hunit
+  default-language: GHC2021
