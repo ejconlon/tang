@@ -23,8 +23,14 @@ fileEvalRenderM fp = TLIO.writeFile fp . TLB.toLazyText . snd . flip runRenderM 
 renderBuilder :: Builder -> RenderM ()
 renderBuilder = RenderM . modify' . (<>)
 
+renderBuilders :: [Builder] -> RenderM ()
+renderBuilders xs = RenderM (modify' (\b -> foldl' (<>) b xs))
+
 renderText :: Text -> RenderM ()
 renderText = renderBuilder . TLB.fromText
 
 renderTexts :: [Text] -> RenderM ()
 renderTexts ts = RenderM (modify' (\b0 -> foldl' (\b t -> b <> TLB.fromText t) b0 ts))
+
+fromShowable :: (Show a) => a -> Builder
+fromShowable = TLB.fromString . show

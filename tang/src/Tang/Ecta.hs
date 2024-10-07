@@ -1,18 +1,18 @@
 module Tang.Ecta where
 
 import Control.Exception (Exception)
-import Control.Monad.State (MonadState (..), State, runState)
+import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.Reader (MonadReader (..), ReaderT, runReaderT)
-import Control.Monad.Except (MonadError (..), ExceptT, runExceptT)
+import Control.Monad.State (MonadState (..), State, runState)
+import Data.Bifoldable (Bifoldable (..))
+import Data.Bifunctor (Bifunctor (..))
+import Data.Bitraversable (Bitraversable (..))
 import Data.Foldable (toList)
+import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
-import Data.Bifunctor (Bifunctor (..))
-import Data.Bifoldable (Bifoldable (..))
-import Data.Bitraversable (Bitraversable (..))
-import Data.Functor.Foldable (Base, Recursive (..), Corecursive (..))
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 
@@ -149,7 +149,7 @@ data ResSt d = ResSt
 type ResM c d = ReaderT (ResEnv c) (ExceptT ConvertErr (State (ResSt d)))
 
 resolve :: (Traversable g) => InitNodeMap (g Path) -> Either ConvertErr (ResNodeMap (g ResPath))
-resolve nm =  undefined
+resolve nm = undefined
 
 seqFromFoldable :: (Foldable f) => f a -> Seq a
 seqFromFoldable = Seq.fromList . toList
