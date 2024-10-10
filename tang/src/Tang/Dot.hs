@@ -16,7 +16,6 @@ import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import Tang.Ecta
   ( ChildIx (..)
-  , ChoiceNode (..)
   , Con (..)
   , InitNodeMap
   , Label (..)
@@ -102,14 +101,14 @@ renderCon :: Con Path -> Builder
 renderCon = \case
   ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
-renderNodeMap :: (c -> Builder) -> InitNodeMap c -> RenderM ()
-renderNodeMap f m = do
+renderNodeMap :: (f NodeId -> Builder) -> (c -> Builder) -> InitNodeMap f c -> RenderM ()
+renderNodeMap g f m = do
   renderBuilder "digraph g {\n"
   for_ (ILM.toList m) $ \(NodeId i, n) -> do
     let it = fromShowable i
     case n of
-      NodeSymbol (SymbolNode (Symbol s) _ _) -> error "TODO"
-      NodeChoice (ChoiceNode _) -> error "TODO"
+      NodeSymbol (SymbolNode _ _) -> error "TODO"
+      NodeChoice _ -> error "TODO"
       NodeClone (NodeId j) -> renderEdge it (fromShowable j) cloneEdgeAttrs
     pure ()
   renderBuilder "}\n"

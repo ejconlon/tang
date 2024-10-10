@@ -1,20 +1,22 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module Tang.Ecta where
 
 import Control.Exception (Exception)
-import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
-import Control.Monad.Reader (MonadReader (..), ReaderT, runReaderT)
-import Control.Monad.State (MonadState (..), State, runState)
-import Data.Bifoldable (Bifoldable (..))
-import Data.Bifunctor (Bifunctor (..))
-import Data.Bitraversable (Bitraversable (..))
-import Data.Foldable (toList)
-import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
-import Data.Sequence (Seq)
+import Control.Monad.Except (Except, MonadError (..), runExcept)
+import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
+import Control.Monad.State (MonadState (..), State, StateT, execStateT, modify', runState)
+import Data.Foldable (toList, traverse_)
+-- import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
+import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
+import Optics (Traversal, traversalVL, traverseOf)
+
+newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
 newtype Symbol = Symbol {unSymbol :: Text}
   deriving newtype (Eq, Ord, IsString)
@@ -44,89 +46,95 @@ type Path = Seq Seg
 data Con p = ConEq !p !p
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
 
-data Labeled r = Labeled !(Maybe Label) !r
+data Edge r = Edge !(Maybe Label) !r
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
 
-data SymbolNode c r = SymbolNode !Symbol !(Seq (Labeled r)) !(Seq c)
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+data SymbolNode f c r = SymbolNode !(Seq c) !(f (Edge r))
+  deriving stock (Functor, Foldable, Traversable)
 
-instance Bifunctor SymbolNode where
-  bimap f g (SymbolNode s xs cs) = SymbolNode s (fmap (fmap g) xs) (fmap f cs)
+deriving stock instance (Eq c, Eq r, Eq (f (Edge r))) => Eq (SymbolNode f c r)
 
-instance Bifoldable SymbolNode where
-  bifoldr f g z (SymbolNode _ xs cs) = foldr (\(Labeled _ r) -> g r) (foldr f z cs) xs
+deriving stock instance (Ord c, Ord r, Ord (f (Edge r))) => Ord (SymbolNode f c r)
 
-instance Bitraversable SymbolNode where
-  bitraverse f g (SymbolNode s xs cs) = liftA2 (SymbolNode s) (traverse (traverse g) xs) (traverse f cs)
+deriving stock instance (Show c, Show r, Show (f (Edge r))) => Show (SymbolNode f c r)
 
-newtype ChoiceNode r = ChoiceNode (Labeled (Seq r))
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+snConTrav :: Traversal (SymbolNode f c r) (SymbolNode f d r) c d
+snConTrav = traversalVL (\g (SymbolNode cs fe) -> fmap (`SymbolNode` fe) (traverse g cs))
 
-data NodeF c r
-  = NodeSymbol !(SymbolNode c r)
-  | NodeChoice !(ChoiceNode r)
+snSymTrans :: NatTrans f g -> SymbolNode f c r -> SymbolNode g c r
+snSymTrans nt (SymbolNode cs fe) = SymbolNode cs (runNatTrans nt fe)
+
+data NodeF f c r
+  = NodeSymbol !(SymbolNode f c r)
+  | NodeChoice !(Seq r)
   | NodeClone !NodeId
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving stock (Functor, Foldable, Traversable)
 
-instance Bifunctor NodeF where
-  bimap f g = \case
-    NodeSymbol x -> NodeSymbol (bimap f g x)
-    NodeChoice x -> NodeChoice (fmap g x)
-    NodeClone x -> NodeClone x
+deriving stock instance (Eq c, Eq r, Eq (f (Edge r))) => Eq (NodeF f c r)
 
-instance Bifoldable NodeF where
-  bifoldr f g z = \case
-    NodeSymbol x -> bifoldr f g z x
-    NodeChoice x -> foldr g z x
-    NodeClone _ -> z
+deriving stock instance (Ord c, Ord r, Ord (f (Edge r))) => Ord (NodeF f c r)
 
-instance Bitraversable NodeF where
-  bitraverse f g = \case
-    NodeSymbol x -> fmap NodeSymbol (bitraverse f g x)
-    NodeChoice x -> fmap NodeChoice (traverse g x)
-    NodeClone x -> pure (NodeClone x)
+deriving stock instance (Show c, Show r, Show (f (Edge r))) => Show (NodeF f c r)
 
-newtype Node c = Node {unNode :: NodeF c (Node c)}
-  deriving stock (Eq, Ord, Show)
+nfConTrav :: Traversal (NodeF f c r) (NodeF f d r) c d
+nfConTrav = traversalVL $ \g -> \case
+  NodeSymbol sn -> fmap NodeSymbol (traverseOf snConTrav g sn)
+  NodeChoice xs -> pure (NodeChoice xs)
+  NodeClone n -> pure (NodeClone n)
 
-type instance Base (Node c) = NodeF c
+nfSymTrans :: NatTrans f g -> NodeF f c r -> NodeF g c r
+nfSymTrans = undefined
 
-instance Recursive (Node c) where
-  project = unNode
+-- newtype Node f c = Node {unNode :: NodeF f c (Node f c)}
+--
+-- deriving stock instance (Eq c, Eq (f (Edge (Node f c)))) => Eq (Node f c)
+-- deriving stock instance (Ord c, Ord (f (Edge (Node f c)))) => Ord (Node f c)
+-- deriving stock instance (Show c, Show (f (Edge (Node f c)))) => Show (Node f c)
 
-instance Corecursive (Node c) where
-  embed = Node
+-- type instance Base (Node f c) = NodeF f c
+--
+-- instance Functor f => Recursive (Node f c) where
+--   project = unNode
+--
+-- instance Functor f => Corecursive (Node f c) where
+--   embed = Node
+--
+type NodeMap f c i = IntLikeMap i (NodeF f c i)
 
-type NodeMap i c j = IntLikeMap i (NodeF c j)
+type InitNodeMap f c = NodeMap f c NodeId
 
-type InitNodeMap c = NodeMap NodeId c NodeId
-
-data NodeGraph c = NodeGraph
+data NodeGraph f c = NodeGraph
   { ngRoot :: !NodeId
-  , ngMap :: !(InitNodeMap c)
+  , ngMap :: !(InitNodeMap f c)
   }
-  deriving stock (Eq, Show)
 
-data NodeSt c = NodeSt
+deriving stock instance (Eq c, Eq (f (Edge NodeId))) => Eq (NodeGraph f c)
+
+deriving stock instance (Show c, Show (f (Edge NodeId))) => Show (NodeGraph f c)
+
+data NodeSt f c = NodeSt
   { nsNext :: !NodeId
-  , nsMap :: !(InitNodeMap c)
+  , nsMap :: !(InitNodeMap f c)
   }
-  deriving stock (Eq, Show)
 
-type NodeM c = State (NodeSt c)
+deriving stock instance (Eq c, Eq (f (Edge NodeId))) => Eq (NodeSt f c)
 
-build :: NodeM c NodeId -> NodeGraph c
+deriving stock instance (Show c, Show (f (Edge NodeId))) => Show (NodeSt f c)
+
+type NodeM f c = State (NodeSt f c)
+
+build :: NodeM f c NodeId -> NodeGraph f c
 build m =
-  let (r, NodeSt _ nm) = runState m (NodeSt 0 mempty)
+  let (r, NodeSt _ nm) = runState m (NodeSt 0 ILM.empty)
   in  NodeGraph r nm
 
-node :: NodeF c NodeId -> NodeM c NodeId
+node :: NodeF f c NodeId -> NodeM f c NodeId
 node x = state (\(NodeSt ni nm) -> (ni, NodeSt (succ ni) (ILM.insert ni x nm)))
 
-data ConvertErr
+data ResErr
   deriving stock (Eq, Ord, Show)
 
-instance Exception ConvertErr
+instance Exception ResErr
 
 data ResPath = ResPath !ChoiceId !Path
   deriving stock (Eq, Ord, Show)
@@ -134,28 +142,59 @@ data ResPath = ResPath !ChoiceId !Path
 isFullyResolved :: ResPath -> Bool
 isFullyResolved (ResPath _ p) = Seq.null p
 
-data Choice = Choice !ChoiceId !NodeId
-  deriving stock (Eq, Ord, Show)
+type ResNodeMap f d = NodeMap f d ChoiceId
 
-type ResNodeMap d = NodeMap ChoiceId d Choice
+type ChoiceMap = IntLikeMap ChoiceId NodeId
 
-type ResEnv c = InitNodeMap c
-
-data ResSt d = ResSt
-  { rsNext :: !ChoiceId
-  , rsMap :: !(ResNodeMap d)
+data Resolution f d = Resolution
+  { resChoiceMap :: !ChoiceMap
+  , resNodeMap :: !(ResNodeMap f d)
   }
 
-type ResM c d = ReaderT (ResEnv c) (ExceptT ConvertErr (State (ResSt d)))
+deriving stock instance (Eq d, Eq (f (Edge ChoiceId))) => Eq (Resolution f d)
 
-resolve :: (Traversable g) => InitNodeMap (g Path) -> Either ConvertErr (ResNodeMap (g ResPath))
-resolve nm = undefined
+deriving stock instance (Show d, Show (f (Edge ChoiceId))) => Show (Resolution f d)
+
+data ResEnv f c = ResEnv
+  { rePath :: !Path
+  , reInitMap :: !(InitNodeMap f c)
+  }
+
+newResEnv :: InitNodeMap f c -> ResEnv f c
+newResEnv = ResEnv Empty
+
+data ResSt f d = ResSt
+  { rsNext :: !ChoiceId
+  , rsChoiceMap :: !ChoiceMap
+  , rsNodeMap :: !(ResNodeMap f d)
+  }
+
+deriving stock instance (Eq d, Eq (f (Edge ChoiceId))) => Eq (ResSt f d)
+
+deriving stock instance (Show d, Show (f (Edge ChoiceId))) => Show (ResSt f d)
+
+newResSt :: ResSt f d
+newResSt = ResSt 0 ILM.empty ILM.empty
+
+type ResM f c d = ReaderT (ResEnv f c) (StateT (ResSt f d) (Except ResErr))
+
+execResM :: ResM f c d () -> InitNodeMap f c -> Either ResErr (Resolution f d)
+execResM m nm =
+  fmap
+    (\rs -> Resolution rs.rsChoiceMap rs.rsNodeMap)
+    (runExcept (execStateT (runReaderT m (newResEnv nm)) newResSt))
+
+resolve :: (Traversable f, Traversable g) => InitNodeMap f (g Path) -> Either ResErr (Resolution f (g ResPath))
+resolve nm = execResM (traverse_ (uncurry go1) (ILM.toList nm)) nm
+ where
+  go1 n nf = do
+    x <- get
+    _ <- pure (x.rsChoiceMap)
+    pure ()
+
+-- go1 _ _ = modify' $ \(ResSt c m) ->
+--   let x =  error "TODO"
+--   in ResSt (succ c) (ILM.insert c x m)
 
 seqFromFoldable :: (Foldable f) => f a -> Seq a
 seqFromFoldable = Seq.fromList . toList
-
-traverseFirst :: (Bitraversable f, Applicative m) => (a -> m x) -> f a b -> m (f x b)
-traverseFirst = flip bitraverse pure
-
-traverseSecond :: (Bitraversable f, Applicative m) => (b -> m y) -> f a b -> m (f a y)
-traverseSecond = bitraverse pure

@@ -23,6 +23,7 @@ dependencies:
 - recursion-schemes
 - int-like
 - z3
+- optics
 
 library:
   source-dirs: src
