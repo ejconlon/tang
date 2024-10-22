@@ -30,6 +30,7 @@ library
       Tang.PropDef
       Tang.Render
       Tang.Solver
+      Tang.Test
       Tang.VarEnv
       Tang.Z3
   other-modules:
@@ -74,7 +75,113 @@ library
     , logict
     , mtl
     , optics
+    , prop-unit
     , recursion-schemes
+    , text
+    , transformers
+    , z3
+  default-language: GHC2021
+
+executable tang-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_tang
+  hs-source-dirs:
+      exe
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveFunctor
+      DeriveFoldable
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      LambdaCase
+      KindSignatures
+      MultiParamTypeClasses
+      MultiWayIf
+      OverloadedRecordDot
+      PatternSynonyms
+      Rank2Types
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      TupleSections
+      TypeApplications
+      TypeOperators
+      TypeFamilies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -fno-warn-unused-top-binds -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.12 && <5
+    , containers
+    , int-like
+    , logict
+    , mtl
+    , optics
+    , prop-unit
+    , recursion-schemes
+    , tang
+    , text
+    , transformers
+    , z3
+  default-language: GHC2021
+
+test-suite tang-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_tang
+  hs-source-dirs:
+      test
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveFunctor
+      DeriveFoldable
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      LambdaCase
+      KindSignatures
+      MultiParamTypeClasses
+      MultiWayIf
+      OverloadedRecordDot
+      PatternSynonyms
+      Rank2Types
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      TupleSections
+      TypeApplications
+      TypeOperators
+      TypeFamilies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -fno-warn-unused-top-binds -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.12 && <5
+    , containers
+    , int-like
+    , logict
+    , mtl
+    , optics
+    , prop-unit
+    , recursion-schemes
+    , tang
     , text
     , transformers
     , z3

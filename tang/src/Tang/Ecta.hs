@@ -1,19 +1,23 @@
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Tang.Ecta where
 
 import Control.Exception (Exception)
+import Control.Monad (unless)
 import Control.Monad.Except (Except, MonadError (..), runExcept)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
-import Control.Monad.State (MonadState (..), State, StateT, execStateT, modify', runState)
-import Data.Foldable (toList, traverse_)
--- import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
+import Control.Monad.State (MonadState (..), State, StateT, execStateT, gets, modify', runState)
+import Data.Foldable (for_, toList, traverse_)
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
+import IntLike.Set (IntLikeSet)
+import IntLike.Set qualified as ILS
 import Optics (Traversal, traversalVL, traverseOf)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
@@ -85,20 +89,6 @@ nfConTrav = traversalVL $ \g -> \case
 nfSymTrans :: NatTrans f g -> NodeF f c r -> NodeF g c r
 nfSymTrans = undefined
 
--- newtype Node f c = Node {unNode :: NodeF f c (Node f c)}
---
--- deriving stock instance (Eq c, Eq (f (Edge (Node f c)))) => Eq (Node f c)
--- deriving stock instance (Ord c, Ord (f (Edge (Node f c)))) => Ord (Node f c)
--- deriving stock instance (Show c, Show (f (Edge (Node f c)))) => Show (Node f c)
-
--- type instance Base (Node f c) = NodeF f c
---
--- instance Functor f => Recursive (Node f c) where
---   project = unNode
---
--- instance Functor f => Corecursive (Node f c) where
---   embed = Node
---
 type NodeMap f c i = IntLikeMap i (NodeF f c i)
 
 type InitNodeMap f c = NodeMap f c NodeId
@@ -128,10 +118,11 @@ build m =
   let (r, NodeSt _ nm) = runState m (NodeSt 0 ILM.empty)
   in  NodeGraph r nm
 
+-- TODO actually traverse and re-unique NodeIds, introducing equalities instead
 node :: NodeF f c NodeId -> NodeM f c NodeId
 node x = state (\(NodeSt ni nm) -> (ni, NodeSt (succ ni) (ILM.insert ni x nm)))
 
-data ResErr
+data ResErr = ResErrMissing !NodeId
   deriving stock (Eq, Ord, Show)
 
 instance Exception ResErr
@@ -165,6 +156,7 @@ newResEnv = ResEnv Empty
 
 data ResSt f d = ResSt
   { rsNext :: !ChoiceId
+  , rsSeen :: !(IntLikeSet NodeId)
   , rsChoiceMap :: !ChoiceMap
   , rsNodeMap :: !(ResNodeMap f d)
   }
@@ -174,7 +166,7 @@ deriving stock instance (Eq d, Eq (f (Edge ChoiceId))) => Eq (ResSt f d)
 deriving stock instance (Show d, Show (f (Edge ChoiceId))) => Show (ResSt f d)
 
 newResSt :: ResSt f d
-newResSt = ResSt 0 ILM.empty ILM.empty
+newResSt = ResSt 0 ILS.empty ILM.empty ILM.empty
 
 type ResM f c d = ReaderT (ResEnv f c) (StateT (ResSt f d) (Except ResErr))
 
@@ -185,16 +177,45 @@ execResM m nm =
     (runExcept (execStateT (runReaderT m (newResEnv nm)) newResSt))
 
 resolve :: (Traversable f, Traversable g) => InitNodeMap f (g Path) -> Either ResErr (Resolution f (g ResPath))
-resolve nm = execResM (traverse_ (uncurry go1) (ILM.toList nm)) nm
+resolve nm0 = execResM (traverse_ (uncurry go1) (ILM.toList nm0)) nm0
  where
   go1 n nf = do
-    x <- get
-    _ <- pure (x.rsChoiceMap)
-    pure ()
+    seen <- gets (\rs -> ILS.member n rs.rsSeen)
+    unless seen $ do
+      modify' (\rs -> rs {rsSeen = ILS.insert n rs.rsSeen})
+      nm <- asks reInitMap
+      case nf of
+        NodeSymbol (SymbolNode _cs fe) -> do
+          for_ fe $ \(Edge _ml n') -> do
+            case ILM.lookup n' nm of
+              Nothing -> throwError (ResErrMissing n')
+              Just nf' -> go1 n' nf'
+            error "TODO"
+        _ -> error "TODO"
+
+-- NodeChoice xs -> do
+--   nm <- asks reInitMap
+--   for_ xs $ \x ->
+--
+--     case ILM.lookup x nm of
+-- NodeClone _ -> undefined
+-- _ <- pure (rs.rsChoiceMap)
 
 -- go1 _ _ = modify' $ \(ResSt c m) ->
 --   let x =  error "TODO"
 --   in ResSt (succ c) (ILM.insert c x m)
+
+data Symbolic a = Symbolic !Symbol !(Seq a)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+exampleX :: InitNodeMap Symbolic (Con Path)
+exampleX = ngMap $ build $ do
+  node (NodeSymbol (SymbolNode Empty (Symbolic "x" Empty)))
+
+exampleFxx :: InitNodeMap Symbolic (Con Path)
+exampleFxx = ngMap $ build $ do
+  ex <- Edge Nothing <$> node (NodeSymbol (SymbolNode Empty (Symbolic "x" Empty)))
+  node (NodeSymbol (SymbolNode Empty (Symbolic "f" [ex, ex])))
 
 seqFromFoldable :: (Foldable f) => f a -> Seq a
 seqFromFoldable = Seq.fromList . toList
