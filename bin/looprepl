@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -eu
+stty -echoctl # hide ^C
+
+ROOT=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd)
+SCRIPT="${ROOT}/Repl.ghci"
+
+repl() {
+  stack ghci --ghci-options "-ghci-script=\"${SCRIPT}\"" tang || true
+}
+
+cd "${ROOT}"
+
+INPUT=""
+while true; do
+  repl
+  echo "Hit enter to restart repl; quit/eof to exit"
+  read INPUT
+  [[ "${INPUT}" == "quit" ]] && break
+done
+

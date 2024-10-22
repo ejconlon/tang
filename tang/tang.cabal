@@ -24,6 +24,7 @@ source-repository head
 
 library
   exposed-modules:
+      Tang
       Tang.Dot
       Tang.Ecta
       Tang.Main

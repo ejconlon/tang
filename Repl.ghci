@@ -1,0 +1,13 @@
+:set -fno-warn-name-shadowing
+:set -fno-warn-orphans
+:set -XOverloadedLists
+:set -XOverloadedStrings
+:set -XTypeFamilies
+:set prompt "> "
+:set prompt-cont "| "
+
+putStrLn "==== tang =========================================="
+
+import Tang
+import Tang.Test
+
