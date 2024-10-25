@@ -21,6 +21,7 @@ import Tang.Ecta2
   , Label (..)
   , Node (..)
   , NodeId (..)
+  , NodeInfo (..)
   , NodeMap
   , Path
   , Seg (..)
@@ -105,7 +106,7 @@ renderCon = \case
 renderNodeMap :: (f Edge -> Builder) -> (c -> Builder) -> NodeMap f c -> RenderM ()
 renderNodeMap g f m = do
   renderBuilder "digraph g {\n"
-  for_ (ILM.toList m) $ \(NodeId i, n) -> do
+  for_ (ILM.toList m) $ \(NodeId i, NodeInfo n _) -> do
     let it = fromShowable i
     case n of
       NodeSymbol (SymbolNode _ _) -> error "TODO"

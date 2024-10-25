@@ -2,9 +2,12 @@
 
 module Tang.Ecta2 where
 
-import Control.Monad.State.Strict (State, modify', runState, state)
+import Control.Monad.Identity (Identity)
+import Control.Monad.State.Strict (StateT, modify', runState, state)
 import Data.Foldable (toList)
 import Data.Functor.Foldable (Base, Recursive (..))
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.String (IsString)
 import Data.Text (Text)
@@ -95,7 +98,18 @@ nodeSymTrans nt = \case
 choice :: (Foldable g) => g NodeId -> Node f c
 choice = NodeChoice . ILS.fromList . toList
 
-type NodeMap f c = IntLikeMap NodeId (Node f c)
+type ChildMap = Map Seg NodeId
+
+data NodeInfo f c = NodeInfo
+  { niNode :: !(Node f c)
+  , niChildren :: !ChildMap
+  }
+
+deriving stock instance (Eq c, Eq (f Edge)) => Eq (NodeInfo f c)
+
+deriving stock instance (Show c, Show (f Edge)) => Show (NodeInfo f c)
+
+type NodeMap f c = IntLikeMap NodeId (NodeInfo f c)
 
 type ParentMap = IntLikeMultiMap NodeId NodeId
 
@@ -119,7 +133,9 @@ deriving stock instance (Eq c, Eq (f Edge)) => Eq (NodeSt f c)
 
 deriving stock instance (Show c, Show (f Edge)) => Show (NodeSt f c)
 
-type NodeM f c = State (NodeSt f c)
+type NodeT f c = StateT (NodeSt f c)
+
+type NodeM f c = NodeT f c Identity
 
 build :: NodeM f c NodeId -> NodeGraph f c
 build m =
@@ -127,24 +143,40 @@ build m =
   in  NodeGraph r nm par
 
 -- private
+processEdges :: (Traversable f) => NodeId -> SymbolNode f c -> ParentMap -> (ChildMap, ParentMap)
+processEdges a sn par =
+  let (_, s1, p1) = snFoldEdges (0, Map.empty, par) sn $
+        \(i, s, p) (Edge ml n) ->
+          let i' = succ i
+              s' = Map.insert (SegIndex i) n s
+              s'' = maybe s' (\l -> Map.insert (SegLabel l) n s') ml
+              p' = ILMM.insert n a p
+          in  (i', s'', p')
+  in  (s1, p1)
+
+-- private
 node' :: (Traversable f) => NodeId -> Node f c -> NodeM f c ()
 node' a b = do
-  modify' $ \(NodeSt ni nm par) ->
-    let nm' = ILM.insert a b nm
-        par' = case b of
-          NodeSymbol sn -> snFoldEdges par sn (\p (Edge _ n) -> ILMM.insert n ni p)
-          _ -> par
-    in  NodeSt ni nm' par'
+  modify' $ \(NodeSt nx nm par) ->
+    let (chi, par') = case b of
+          NodeSymbol sn -> processEdges a sn par
+          _ -> (Map.empty, par)
+        nm' = ILM.insert a (NodeInfo b chi) nm
+    in  NodeSt nx nm' par'
+
+-- private
+fresh :: NodeM f c NodeId
+fresh = state (\ns -> let nx = ns.nsNext in (nx, ns {nsNext = succ nx}))
 
 node :: (Traversable f) => Node f c -> NodeM f c NodeId
 node b = do
-  a <- state (\ns -> let ni = ns.nsNext in (ni, ns {nsNext = succ ni}))
+  a <- fresh
   node' a b
   pure a
 
 recursive :: (Traversable f) => (NodeId -> NodeM f c (Node f c)) -> NodeM f c NodeId
 recursive f = do
-  a <- state (\ns -> let ni = ns.nsNext in (ni, ns {nsNext = succ ni}))
+  a <- fresh
   b <- f a
   node' a b
   pure a
