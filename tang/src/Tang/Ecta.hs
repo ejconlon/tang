@@ -2,10 +2,13 @@
 
 module Tang.Ecta where
 
+import Control.Applicative (empty)
 import Control.Exception (Exception)
 import Control.Monad.Except (Except, MonadError (..), runExcept)
 import Control.Monad.Identity (Identity)
+import Control.Monad.Logic (LogicT)
 import Control.Monad.State.Strict (StateT, execStateT, modify', runState, state)
+import Control.Placeholder (todo)
 import Data.Foldable (toList, traverse_)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
@@ -21,6 +24,7 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
+import Tang.Search (SearchM, SearchSt (..), runObserveM, search)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -240,3 +244,21 @@ resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0))
         pure (NodeSymbol (SymbolNode cs' fe))
     modify' (ILM.insert a (NodeInfo b' chi))
   goRes a chi = either throwError pure . resolvePath nm0 a chi
+
+newtype Fix f = Fix {unFix :: f (Fix f)}
+
+deriving stock instance (Eq (f (Fix f))) => Eq (Fix f)
+
+deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
+
+deriving stock instance (Show (f (Fix f))) => Show (Fix f)
+
+type EnumM = SearchM () ()
+
+runEnumM :: Int -> EnumM a -> [a]
+runEnumM n m = fst (runObserveM (search n m) (SearchSt () ()))
+
+enumerate :: (Traversable f) => NodeGraph f (Con ResPath) -> EnumM (Fix f)
+enumerate (NodeGraph r nm _) = go r
+ where
+  go _ = empty

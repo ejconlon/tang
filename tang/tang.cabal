@@ -30,6 +30,7 @@ library
       Tang.Example
       Tang.PropDef
       Tang.Render
+      Tang.Search
       Tang.Solver
       Tang.Test
       Tang.UnionFind
