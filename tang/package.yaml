@@ -21,10 +21,10 @@ dependencies:
 - text
 - containers
 - recursion-schemes
-- int-like
-- z3
+- int-like >= 0.1.3
+- z3 >= 411.0.1
 - optics
-- prop-unit
+- prop-unit >= 0.1.3
 
 library:
   source-dirs: src

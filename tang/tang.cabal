@@ -27,11 +27,14 @@ library
       Tang
       Tang.Dot
       Tang.Ecta
+      Tang.Ecta2
       Tang.Main
       Tang.PropDef
       Tang.Render
       Tang.Solver
       Tang.Test
+      Tang.UnionFind
+      Tang.Util
       Tang.VarEnv
       Tang.Z3
   other-modules:
@@ -72,15 +75,15 @@ library
   build-depends:
       base >=4.12 && <5
     , containers
-    , int-like
+    , int-like >=0.1.3
     , logict
     , mtl
     , optics
-    , prop-unit
+    , prop-unit >=0.1.3
     , recursion-schemes
     , text
     , transformers
-    , z3
+    , z3 >=411.0.1
   default-language: GHC2021
 
 executable tang-exe
@@ -123,16 +126,16 @@ executable tang-exe
   build-depends:
       base >=4.12 && <5
     , containers
-    , int-like
+    , int-like >=0.1.3
     , logict
     , mtl
     , optics
-    , prop-unit
+    , prop-unit >=0.1.3
     , recursion-schemes
     , tang
     , text
     , transformers
-    , z3
+    , z3 >=411.0.1
   default-language: GHC2021
 
 test-suite tang-test
@@ -176,14 +179,14 @@ test-suite tang-test
   build-depends:
       base >=4.12 && <5
     , containers
-    , int-like
+    , int-like >=0.1.3
     , logict
     , mtl
     , optics
-    , prop-unit
+    , prop-unit >=0.1.3
     , recursion-schemes
     , tang
     , text
     , transformers
-    , z3
+    , z3 >=411.0.1
   default-language: GHC2021

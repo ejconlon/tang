@@ -5,12 +5,12 @@
 
 packages:
 - completed:
-    hackage: int-like-0.1.2@sha256:447b8bc1a137884e178067376df20a1477ebfc753e0336a97ddb91e03dc9ec78,3081
+    hackage: int-like-0.1.3@sha256:3f8ed95cc4f122e8ba76928e7ec8c52f4ab536703062a8272a9ad543796f5d5c,3081
     pantry-tree:
-      sha256: d3fd5a5c04278ea29b78d60a52db1be7e8b7d2af6caccb4868260665066633f8
+      sha256: 041c70a2f58238a70332dcb578e796e192866b66e99035acfe0c776d2804969d
       size: 510
   original:
-    hackage: int-like-0.1.2
+    hackage: int-like-0.1.3
 - completed:
     hackage: prop-unit-0.1.3@sha256:feb644113d799b971201b2dc47cd01fc9a30b972dec7597a4dfd9c8fb3250f1f,2928
     pantry-tree:

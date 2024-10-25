@@ -7,7 +7,7 @@ packages:
 - tang
 
 extra-deps:
-- int-like-0.1.2
+- int-like-0.1.3
 - prop-unit-0.1.3
 - git: git@github.com:IagoAbal/haskell-z3
   commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
