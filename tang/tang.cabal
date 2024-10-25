@@ -26,7 +26,6 @@ library
   exposed-modules:
       Tang
       Tang.Dot
-      Tang.Ecta
       Tang.Ecta2
       Tang.Example
       Tang.PropDef

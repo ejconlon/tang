@@ -2,10 +2,12 @@
 
 module Tang.Ecta2 where
 
+import Control.Monad.Except (Except, MonadError (..), runExcept)
+import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
 import Control.Exception (Exception)
 import Control.Monad.Identity (Identity)
-import Control.Monad.State.Strict (StateT, modify', runState, state)
-import Data.Foldable (toList)
+import Control.Monad.State.Strict (StateT, modify', runState, state, execStateT)
+import Data.Foldable (toList, traverse_)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -20,6 +22,7 @@ import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
 import Control.Placeholder (todo)
+import Data.Sequence qualified as Seq
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -159,12 +162,14 @@ processEdges a sn par =
 -- private
 node' :: (Traversable f) => NodeId -> Node f c -> NodeM f c ()
 node' a b = do
-  modify' $ \(NodeSt nx nm par) ->
-    let (chi, par') = case b of
-          NodeSymbol sn -> processEdges a sn par
-          _ -> (Map.empty, par)
-        nm' = ILM.insert a (NodeInfo b chi) nm
-    in  NodeSt nx nm' par'
+  modify' $ \(NodeSt nx nm par0) ->
+    let (chi2, par2) = case b of
+          NodeSymbol sn ->
+            let (chi1, par1) = processEdges a sn par0
+            in (chi1, par1)
+          _ -> (Map.empty, par0)
+        nm' = ILM.insert a (NodeInfo b chi2) nm
+    in  NodeSt nx nm' par2
 
 -- private
 fresh :: NodeM f c NodeId
@@ -188,7 +193,10 @@ tree t = do
   fn <- traverse tree (project t)
   node (NodeSymbol (SymbolNode Empty (fmap (Edge Nothing) fn)))
 
-newtype ResErr = ResErrMissing NodeId
+data ResErr =
+    ResErrSegMissing !Seg
+  | ResErrNodeMissing !NodeId
+  | ResErrPathChoice !NodeId
   deriving stock (Eq, Ord, Show)
 
 instance Exception ResErr
@@ -196,5 +204,40 @@ instance Exception ResErr
 data ResPath = ResPath !NodeId !Path
   deriving stock (Eq, Ord, Show)
 
-resolve :: (Traversable f, Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
-resolve = todo
+isFullyResolved :: ResPath -> Bool
+isFullyResolved (ResPath _ p) = Seq.null p
+
+resolvePath :: NodeMap f c -> NodeId -> ChildMap -> Path -> Either ResErr ResPath
+resolvePath nm = go where
+  go a chi = \case
+    Empty -> pure (ResPath a Empty)
+    p :<| ps -> case Map.lookup p chi of
+      Nothing -> throwError (ResErrSegMissing p)
+      Just a' -> case ILM.lookup a' nm of
+        Nothing -> throwError (ResErrNodeMissing a')
+        Just (NodeInfo b' chi') ->
+          case b' of
+            NodeChoice _ -> throwError (ResErrPathChoice a')
+            NodeClone _ -> pure (ResPath a' ps)
+            NodeSymbol _ -> go a' chi' ps
+
+-- private
+type ResM f g = StateT (NodeMap f (g ResPath)) (Except ResErr)
+
+-- private
+execResM :: ResM f g () -> Either ResErr (NodeMap f (g ResPath))
+execResM m = runExcept (execStateT m ILM.empty)
+
+-- NOTE can make this a traversal
+resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
+resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0)) where
+  goRoot a (NodeInfo b chi) = do
+    b' <- case b of
+      NodeChoice ns -> pure (NodeChoice ns)
+      NodeClone n -> pure (NodeClone n)
+      NodeSymbol (SymbolNode cs fe) -> do
+        cs' <- traverse (traverse (goRes a chi)) cs
+        pure (NodeSymbol (SymbolNode cs' fe))
+    modify' (ILM.insert a (NodeInfo b' chi))
+  goRes a chi = either throwError pure . resolvePath nm0 a chi
+
