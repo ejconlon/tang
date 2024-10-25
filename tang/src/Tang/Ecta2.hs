@@ -1,23 +1,13 @@
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Tang.Ecta2 where
 
-import Control.Exception (Exception)
-import Control.Monad (void)
-import Control.Monad.Except (Except, MonadError (..), runExcept)
-import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
-import Control.Monad.State (MonadState (..), State, StateT, execStateT, gets, modify', runState)
-import Data.Foldable (for_, toList, traverse_)
+import Control.Monad.State.Strict (State, modify', runState, state)
+import Data.Foldable (toList)
 import Data.Functor.Foldable (Base, Recursive (..))
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
-import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
-import Data.Traversable (for)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.MultiMap (IntLikeMultiMap)
@@ -25,7 +15,6 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
-import Tang.Util (foldM')
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
