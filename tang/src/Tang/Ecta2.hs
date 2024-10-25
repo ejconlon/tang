@@ -9,23 +9,23 @@ import Control.Monad (void)
 import Control.Monad.Except (Except, MonadError (..), runExcept)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
 import Control.Monad.State (MonadState (..), State, StateT, execStateT, gets, modify', runState)
-import Data.Foldable (for_, traverse_, toList)
-import Data.Traversable (for)
+import Data.Foldable (for_, toList, traverse_)
+import Data.Functor.Foldable (Base, Recursive (..))
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
+import Data.Traversable (for)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
+import IntLike.MultiMap (IntLikeMultiMap)
+import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Traversal, traversalVL, traverseOf, Traversal', foldlOf')
-import Data.Functor.Foldable (Recursive (..), Base)
+import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
 import Tang.Util (foldM')
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
-import IntLike.MultiMap qualified as ILMM
-import IntLike.MultiMap (IntLikeMultiMap)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -74,7 +74,7 @@ snConTrav = traversalVL (\g (SymbolNode cs fe) -> fmap (`SymbolNode` fe) (traver
 snSymTrans :: NatTrans f g -> SymbolNode f c -> SymbolNode g c
 snSymTrans nt (SymbolNode cs fe) = SymbolNode cs (runNatTrans nt fe)
 
-snEdgeTrav :: Traversable f => Traversal' (SymbolNode f c) Edge
+snEdgeTrav :: (Traversable f) => Traversal' (SymbolNode f c) Edge
 snEdgeTrav = traversalVL (\g (SymbolNode cs fe) -> fmap (SymbolNode cs) (traverse g fe))
 
 snFoldEdges :: (Traversable f) => b -> SymbolNode f c -> (b -> Edge -> b) -> b
@@ -107,6 +107,7 @@ choice :: (Foldable g) => g NodeId -> Node f c
 choice = NodeChoice . ILS.fromList . toList
 
 type NodeMap f c = IntLikeMap NodeId (Node f c)
+
 type ParentMap = IntLikeMultiMap NodeId NodeId
 
 data NodeGraph f c = NodeGraph
@@ -142,19 +143,19 @@ node' a b = do
   modify' $ \(NodeSt ni nm par) ->
     let nm' = ILM.insert a b nm
         par' = case b of
-              NodeSymbol sn -> snFoldEdges par sn (\p (Edge _ n) -> ILMM.insert n ni p)
-              _ -> par
-    in NodeSt ni nm' par'
+          NodeSymbol sn -> snFoldEdges par sn (\p (Edge _ n) -> ILMM.insert n ni p)
+          _ -> par
+    in  NodeSt ni nm' par'
 
 node :: (Traversable f) => Node f c -> NodeM f c NodeId
 node b = do
-  a <- state (\ns -> let ni = ns.nsNext in (ni, ns { nsNext = succ ni }))
+  a <- state (\ns -> let ni = ns.nsNext in (ni, ns {nsNext = succ ni}))
   node' a b
   pure a
 
 recursive :: (Traversable f) => (NodeId -> NodeM f c (Node f c)) -> NodeM f c NodeId
 recursive f = do
-  a <- state (\ns -> let ni = ns.nsNext in (ni, ns { nsNext = succ ni }))
+  a <- state (\ns -> let ni = ns.nsNext in (ni, ns {nsNext = succ ni}))
   b <- f a
   node' a b
   pure a
@@ -163,4 +164,3 @@ tree :: (Recursive t, Base t ~ f, Traversable f) => t -> NodeM f c NodeId
 tree t = do
   fn <- traverse tree (project t)
   node (NodeSymbol (SymbolNode Empty (fmap (Edge Nothing) fn)))
-

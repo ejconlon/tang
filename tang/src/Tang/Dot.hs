@@ -14,13 +14,14 @@ import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
-import Tang.Ecta
+import Tang.Ecta2
   ( ChildIx (..)
   , Con (..)
-  , InitNodeMap
+  , Edge (..)
   , Label (..)
-  , NodeF (..)
+  , Node (..)
   , NodeId (..)
+  , NodeMap
   , Path
   , Seg (..)
   , Symbol (..)
@@ -101,7 +102,7 @@ renderCon :: Con Path -> Builder
 renderCon = \case
   ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
-renderNodeMap :: (f NodeId -> Builder) -> (c -> Builder) -> InitNodeMap f c -> RenderM ()
+renderNodeMap :: (f Edge -> Builder) -> (c -> Builder) -> NodeMap f c -> RenderM ()
 renderNodeMap g f m = do
   renderBuilder "digraph g {\n"
   for_ (ILM.toList m) $ \(NodeId i, n) -> do

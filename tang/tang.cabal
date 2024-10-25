@@ -28,6 +28,7 @@ library
       Tang.Dot
       Tang.Ecta
       Tang.Ecta2
+      Tang.Example
       Tang.Main
       Tang.PropDef
       Tang.Render
