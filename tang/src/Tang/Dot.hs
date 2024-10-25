@@ -14,7 +14,7 @@ import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
-import Tang.Ecta2
+import Tang.Ecta
   ( ChildIx (..)
   , Con (..)
   , Edge (..)

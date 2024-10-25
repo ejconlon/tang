@@ -4,7 +4,7 @@
 module Tang.Example where
 
 import Data.Sequence (Seq)
-import Tang.Ecta2
+import Tang.Ecta
 
 data Symbolic a = Symbolic !Symbol !(Seq a)
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)

@@ -1,17 +1,17 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Tang.Ecta2 where
+module Tang.Ecta where
 
-import Control.Monad.Except (Except, MonadError (..), runExcept)
-import Control.Monad.Reader (MonadReader (..), ReaderT, asks, runReaderT)
 import Control.Exception (Exception)
+import Control.Monad.Except (Except, MonadError (..), runExcept)
 import Control.Monad.Identity (Identity)
-import Control.Monad.State.Strict (StateT, modify', runState, state, execStateT)
+import Control.Monad.State.Strict (StateT, execStateT, modify', runState, state)
 import Data.Foldable (toList, traverse_)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
+import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
@@ -21,8 +21,6 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
-import Control.Placeholder (todo)
-import Data.Sequence qualified as Seq
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -166,7 +164,7 @@ node' a b = do
     let (chi2, par2) = case b of
           NodeSymbol sn ->
             let (chi1, par1) = processEdges a sn par0
-            in (chi1, par1)
+            in  (chi1, par1)
           _ -> (Map.empty, par0)
         nm' = ILM.insert a (NodeInfo b chi2) nm
     in  NodeSt nx nm' par2
@@ -193,8 +191,8 @@ tree t = do
   fn <- traverse tree (project t)
   node (NodeSymbol (SymbolNode Empty (fmap (Edge Nothing) fn)))
 
-data ResErr =
-    ResErrSegMissing !Seg
+data ResErr
+  = ResErrSegMissing !Seg
   | ResErrNodeMissing !NodeId
   | ResErrPathChoice !NodeId
   deriving stock (Eq, Ord, Show)
@@ -208,7 +206,8 @@ isFullyResolved :: ResPath -> Bool
 isFullyResolved (ResPath _ p) = Seq.null p
 
 resolvePath :: NodeMap f c -> NodeId -> ChildMap -> Path -> Either ResErr ResPath
-resolvePath nm = go where
+resolvePath nm = go
+ where
   go a chi = \case
     Empty -> pure (ResPath a Empty)
     p :<| ps -> case Map.lookup p chi of
@@ -230,7 +229,8 @@ execResM m = runExcept (execStateT m ILM.empty)
 
 -- NOTE can make this a traversal
 resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
-resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0)) where
+resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0))
+ where
   goRoot a (NodeInfo b chi) = do
     b' <- case b of
       NodeChoice ns -> pure (NodeChoice ns)
@@ -240,4 +240,3 @@ resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0)) where
         pure (NodeSymbol (SymbolNode cs' fe))
     modify' (ILM.insert a (NodeInfo b' chi))
   goRes a chi = either throwError pure . resolvePath nm0 a chi
-
