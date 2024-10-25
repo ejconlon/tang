@@ -8,6 +8,7 @@
 
 putStrLn "==== tang =========================================="
 
+import Text.Show.Pretty (pPrint)
 import Tang
 import Tang.Test
 

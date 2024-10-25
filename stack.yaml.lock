@@ -5,6 +5,13 @@
 
 packages:
 - completed:
+    hackage: placeholder-0@sha256:dfb801d5121b8f277288b24b47a869f173f94323eb2e85c060ab6aa60fb61a6c,1270
+    pantry-tree:
+      sha256: e83adedb943563daf59925ebdd5ccea3660ef617fd754940fb30941bd3269f56
+      size: 330
+  original:
+    hackage: placeholder-0
+- completed:
     hackage: int-like-0.1.3@sha256:3f8ed95cc4f122e8ba76928e7ec8c52f4ab536703062a8272a9ad543796f5d5c,3081
     pantry-tree:
       sha256: 041c70a2f58238a70332dcb578e796e192866b66e99035acfe0c776d2804969d

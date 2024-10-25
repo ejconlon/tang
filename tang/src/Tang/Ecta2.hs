@@ -2,6 +2,7 @@
 
 module Tang.Ecta2 where
 
+import Control.Exception (Exception)
 import Control.Monad.Identity (Identity)
 import Control.Monad.State.Strict (StateT, modify', runState, state)
 import Data.Foldable (toList)
@@ -18,6 +19,7 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
+import Control.Placeholder (todo)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -185,3 +187,14 @@ tree :: (Recursive t, Base t ~ f, Traversable f) => t -> NodeM f c NodeId
 tree t = do
   fn <- traverse tree (project t)
   node (NodeSymbol (SymbolNode Empty (fmap (Edge Nothing) fn)))
+
+newtype ResErr = ResErrMissing NodeId
+  deriving stock (Eq, Ord, Show)
+
+instance Exception ResErr
+
+data ResPath = ResPath !NodeId !Path
+  deriving stock (Eq, Ord, Show)
+
+resolve :: (Traversable f, Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
+resolve = todo

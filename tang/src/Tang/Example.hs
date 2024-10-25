@@ -3,7 +3,7 @@
 
 module Tang.Example where
 
-import Data.Sequence (Seq (..))
+import Data.Sequence (Seq)
 import Tang.Ecta2
 
 data Symbolic a = Symbolic !Symbol !(Seq a)
@@ -11,9 +11,9 @@ data Symbolic a = Symbolic !Symbol !(Seq a)
 
 exampleX :: NodeMap Symbolic (Con Path)
 exampleX = ngNodes $ build $ do
-  node (NodeSymbol (SymbolNode Empty (Symbolic "x" Empty)))
+  node (NodeSymbol (SymbolNode [] (Symbolic "x" [])))
 
 exampleFxx :: NodeMap Symbolic (Con Path)
 exampleFxx = ngNodes $ build $ do
-  ex <- Edge Nothing <$> node (NodeSymbol (SymbolNode Empty (Symbolic "x" Empty)))
-  node (NodeSymbol (SymbolNode Empty (Symbolic "f" [ex, ex])))
+  ex <- Edge Nothing <$> node (NodeSymbol (SymbolNode [] (Symbolic "x" [])))
+  node (NodeSymbol (SymbolNode [] (Symbolic "f" [ex, ex])))
