@@ -45,6 +45,7 @@ lint:
 lint-apply:
   find {{ src_dirs }} -name '*.hs' | xargs -t -I % stack exec -- hlint % --refactor --refactor-options="--inplace"
 
-# Run the executable
-exe:
-  {{ stack_build }} --test --no-run-tests --exec tang-exe
+# Render dot files
+dot:
+  cd tang/dot
+  find . -type f -name "*.dot" | xargs dot -Tpng -O

@@ -5,3 +5,4 @@ dist-newstyle
 *.swo
 *.swp
 *~
+tang/dot/*.png
