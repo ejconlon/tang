@@ -21,7 +21,7 @@ fileEvalRenderM :: FilePath -> RenderM () -> IO ()
 fileEvalRenderM fp = TLIO.writeFile fp . TLB.toLazyText . snd . flip runRenderM mempty
 
 renderBuilder :: Builder -> RenderM ()
-renderBuilder = RenderM . modify' . (<>)
+renderBuilder = RenderM . modify' . flip (<>)
 
 renderBuilders :: [Builder] -> RenderM ()
 renderBuilders xs = RenderM (modify' (\b -> foldl' (<>) b xs))

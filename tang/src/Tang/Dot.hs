@@ -11,16 +11,15 @@ import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
 import IntLike.Map qualified as ILM
-import IntLike.Set qualified as ILS
 import Tang.Ecta
   ( ChildIx (..)
   , Con (..)
   , Edge (..)
   , Label (..)
   , Node (..)
+  , NodeGraph (..)
   , NodeId (..)
   , NodeInfo (..)
-  , NodeMap
   , Path
   , Seg (..)
   , SymbolNode (..)
@@ -29,11 +28,23 @@ import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders)
 
 type Attrs = Map Text [Text]
 
-choiceEdgeAttrs :: Attrs
-choiceEdgeAttrs = Map.empty
+symbolNodeAttrs :: Attrs
+symbolNodeAttrs = Map.empty
+
+choiceNodeAttrs :: Attrs
+choiceNodeAttrs = Map.empty
+
+cloneNodeAttrs :: Attrs
+cloneNodeAttrs = Map.empty
+
+rootNodeAttrs :: Attrs
+rootNodeAttrs = Map.fromList [("style", ["bold"])]
+
+normalEdgeAttrs :: Attrs
+normalEdgeAttrs = Map.empty
 
 cloneEdgeAttrs :: Attrs
-cloneEdgeAttrs = Map.empty
+cloneEdgeAttrs = Map.fromList [("style", ["dashed"])]
 
 fromAttrs :: Attrs -> Builder
 fromAttrs attrs = buildAttrs (Map.toList attrs)
@@ -47,7 +58,7 @@ fromAttrs attrs = buildAttrs (Map.toList attrs)
 
 renderNode :: Builder -> Builder -> Maybe Builder -> Attrs -> RenderM ()
 renderNode nid nlab mxlab attrs = do
-  renderBuilders ["  ", nid, "[forcelabels=true label=\"", nlab, "\""]
+  renderBuilders ["  ", nid, " [forcelabels=\"true\" label=\"", nlab, "\""]
   for_ mxlab $ \xlab ->
     renderBuilders [" ", "xlabel=\"", xlab, "\""]
   unless (Map.null attrs) $
@@ -58,7 +69,7 @@ renderEdge :: Builder -> Builder -> Attrs -> RenderM ()
 renderEdge nidSrc nidDest attrs = do
   renderBuilders ["  ", nidSrc, " -> ", nidDest]
   unless (Map.null attrs) $
-    renderBuilders ["[", fromAttrs attrs, "]"]
+    renderBuilders [" [", fromAttrs attrs, "]"]
   renderBuilder "\n"
 
 renderSeg :: Seg -> Builder
@@ -73,15 +84,29 @@ renderCon :: Con Path -> Builder
 renderCon = \case
   ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
-renderNodeMap :: (f Edge -> Builder) -> (c -> Builder) -> NodeMap f c -> RenderM ()
-renderNodeMap _g _f m = do
+renderNodeGraph :: (f Edge -> Builder) -> (c -> Builder) -> NodeGraph f c -> RenderM ()
+renderNodeGraph g _f (NodeGraph root m _) = do
   renderBuilder "digraph g {\n"
-  for_ (ILM.toList m) $ \(NodeId i, NodeInfo _ _ n) -> do
-    let it = fromShowable i
-    case n of
-      NodeSymbol (SymbolNode _ _) -> error "TODO"
-      NodeChoice js -> for_ (ILS.toList js) $ \(NodeId j) ->
-        renderEdge it (fromShowable j) choiceEdgeAttrs
-      NodeClone (NodeId j) -> renderEdge it (fromShowable j) cloneEdgeAttrs
-    pure ()
+  -- Emit nodes
+  for_ (ILM.toList m) $ \(i, NodeInfo _ _ n) -> do
+    let nid = fromShowable (unNodeId i)
+        (nlab, mxlab, attrs) = case n of
+          NodeSymbol (SymbolNode _ fe) ->
+            (g fe, Nothing, symbolNodeAttrs)
+          NodeChoice _ -> do
+            ("", Nothing, choiceNodeAttrs)
+          NodeClone _ -> do
+            ("", Nothing, cloneNodeAttrs)
+    let attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)
+    renderNode nid nlab mxlab attrs'
+  -- Emit edges
+  -- for_ (ILM.toList m) $ \(NodeId i, NodeInfo _sz _chi n) -> do
+  --   let _nid = fromShowable i
+  --   case n of
+  --     NodeSymbol (SymbolNode _ _fe) ->
+  --       todo
+  --     NodeChoice _js ->
+  --       todo
+  --     NodeClone _j ->
+  --       todo
   renderBuilder "}\n"

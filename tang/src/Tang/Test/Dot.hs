@@ -1,10 +1,17 @@
 module Tang.Test.Dot (testDot) where
 
-import PropUnit (TestTree, testUnit, (===))
+import Control.Monad.IO.Class (MonadIO (..))
+import Data.Text.IO qualified as TIO
+import PropUnit (TestTree, testUnit)
+import Tang.Render (RenderM, simpleEvalRenderM)
+import Tang.Test.Symbolic qualified as TTS
 
--- import Tang.Dot qualified as TD
--- import Tang.Test.Example qualified as TTE
+write :: (MonadIO m) => String -> RenderM () -> m ()
+write n m =
+  let fn = "dot/" ++ n ++ ".dot"
+      t = simpleEvalRenderM m
+  in  liftIO (TIO.writeFile fn t)
 
 testDot :: TestTree
 testDot = testUnit "dot" $ do
-  'x' === 'x'
+  write "fxx" (TTS.renderSymbolicGraph TTS.exampleFxx)
