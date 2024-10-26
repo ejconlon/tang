@@ -8,9 +8,10 @@ import Control.Applicative (Alternative (..))
 import Control.Monad (replicateM_)
 import Control.Monad.Identity (runIdentity)
 import Control.Monad.Logic (MonadLogic (..), reflect)
-import Control.Monad.State.Strict (get, modify')
+import Control.Monad.State.Strict (get, modify', put)
+import Data.Sequence qualified as Seq
 import PropUnit (TestTree, testUnit, (===))
-import Tang.Search (SearchM, searchN)
+import Tang.Search (SearchM, interleaveSeq, searchN)
 
 type M = SearchM String Int
 
@@ -68,6 +69,7 @@ testSearch = testUnit "Search" $ do
   run trackSplitEff2 === rights [2, 0]
   run trackSplitEff3 === rights [2, 0]
   run trackIntMulti0 === rights [2, 0, 1]
+  run (interleaveSeq (Seq.fromList (fmap (\i -> i <$ put i) [0, 1, 2, 3, 4]))) === rights [0, 2, 1, 3, 4]
 
 -- split-reflect - should be identical to m, let's test that it really is
 splitRef :: M a -> M a

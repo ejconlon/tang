@@ -2,14 +2,12 @@
 
 module Tang.Ecta where
 
-import Control.Applicative (empty)
 import Control.Exception (Exception)
-import Control.Monad.Except (Except, ExceptT, MonadError (..), runExcept, runExceptT)
+import Control.Monad.Except (runExcept, throwError)
 import Control.Monad.Identity (Identity)
-import Control.Monad.Logic (interleave)
-import Control.Monad.State.Strict (StateT, execStateT, get, modify', runState, state)
+import Control.Monad.State.Strict (StateT, modify', runState, state)
 import Control.Placeholder (todo)
-import Data.Foldable (toList, traverse_)
+import Data.Foldable (toList)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -25,8 +23,6 @@ import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
 import Tang.Search (SearchM, interleaveSeq)
-
--- import Tang.Search (SearchM, SearchSt (..), runObserveM, search, SearchT, runObserveT)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -226,16 +222,8 @@ resolvePath nm = go
             NodeClone _ -> pure (ResPath a' ps)
             NodeSymbol _ -> go a' chi' ps
 
--- private
-type ResM f g = StateT (NodeMap f (g ResPath)) (Except ResErr)
-
--- private
-execResM :: ResM f g () -> Either ResErr (NodeMap f (g ResPath))
-execResM m = runExcept (execStateT m ILM.empty)
-
--- NOTE can make this a traversal
 resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
-resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0))
+resolveAll nm0 = fmap ILM.fromList (runExcept (traverse (uncurry goRoot) (ILM.toList nm0)))
  where
   goRoot a (NodeInfo b chi) = do
     b' <- case b of
@@ -244,7 +232,7 @@ resolveAll nm0 = execResM (traverse_ (uncurry goRoot) (ILM.toList nm0))
       NodeSymbol (SymbolNode cs fe) -> do
         cs' <- traverse (traverse (goRes a chi)) cs
         pure (NodeSymbol (SymbolNode cs' fe))
-    modify' (ILM.insert a (NodeInfo b' chi))
+    pure (a, NodeInfo b' chi)
   goRes a chi = either throwError pure . resolvePath nm0 a chi
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
