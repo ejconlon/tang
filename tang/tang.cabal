@@ -31,8 +31,9 @@ library
       Tang.Search
       Tang.Test
       Tang.Test.Dot
-      Tang.Test.Example
+      Tang.Test.Ring
       Tang.Test.Search
+      Tang.Test.Symbolic
       Tang.Util
   other-modules:
       Paths_tang
