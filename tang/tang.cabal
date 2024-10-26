@@ -27,10 +27,11 @@ library
       Tang
       Tang.Dot
       Tang.Ecta
-      Tang.Example
       Tang.Render
       Tang.Search
       Tang.Test
+      Tang.Test.Dot
+      Tang.Test.Example
       Tang.Test.Search
       Tang.Util
   other-modules:

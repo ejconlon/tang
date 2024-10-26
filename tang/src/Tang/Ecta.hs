@@ -106,8 +106,9 @@ choice = NodeChoice . ILS.fromList . toList
 type ChildMap = Map Seg NodeId
 
 data NodeInfo f c = NodeInfo
-  { niNode :: !(Node f c)
+  { niSize :: !Int
   , niChildren :: !ChildMap
+  , niNode :: !(Node f c)
   }
 
 deriving stock instance (Eq c, Eq (f Edge)) => Eq (NodeInfo f c)
@@ -148,27 +149,24 @@ build m =
   in  NodeGraph r nm par
 
 -- private
-processEdges :: (Traversable f) => NodeId -> SymbolNode f c -> ParentMap -> (ChildMap, ParentMap)
-processEdges a sn par =
-  let (_, s1, p1) = snFoldEdges (0, Map.empty, par) sn $
-        \(i, s, p) (Edge ml n) ->
-          let i' = succ i
-              s' = Map.insert (SegIndex i) n s
-              s'' = maybe s' (\l -> Map.insert (SegLabel l) n s') ml
-              p' = ILMM.insert n a p
-          in  (i', s'', p')
-  in  (s1, p1)
+processEdges :: (Traversable f) => NodeId -> SymbolNode f c -> ParentMap -> (Int, ChildMap, ParentMap)
+processEdges a sn par = snFoldEdges (0, Map.empty, par) sn $ \(i, s, p) (Edge ml n) ->
+  let i' = succ i
+      s' = Map.insert (SegIndex (ChildIx i)) n s
+      s'' = maybe s' (\l -> Map.insert (SegLabel l) n s') ml
+      p' = ILMM.insert n a p
+  in  (i', s'', p')
 
 -- private
 node' :: (Traversable f) => NodeId -> Node f c -> NodeM f c ()
 node' a b = do
   modify' $ \(NodeSt nx nm par0) ->
-    let (chi2, par2) = case b of
+    let (sz2, chi2, par2) = case b of
           NodeSymbol sn ->
-            let (chi1, par1) = processEdges a sn par0
-            in  (chi1, par1)
-          _ -> (Map.empty, par0)
-        nm' = ILM.insert a (NodeInfo b chi2) nm
+            let (sz1, chi1, par1) = processEdges a sn par0
+            in  (sz1, chi1, par1)
+          _ -> (0, Map.empty, par0)
+        nm' = ILM.insert a (NodeInfo sz2 chi2 b) nm
     in  NodeSt nx nm' par2
 
 -- private
@@ -216,7 +214,7 @@ resolvePath nm = go
       Nothing -> throwError (ResErrSegMissing p)
       Just a' -> case ILM.lookup a' nm of
         Nothing -> throwError (ResErrNodeMissing a')
-        Just (NodeInfo b' chi') ->
+        Just (NodeInfo _ chi' b') ->
           case b' of
             NodeChoice _ -> throwError (ResErrPathChoice a')
             NodeClone _ -> pure (ResPath a' ps)
@@ -225,14 +223,14 @@ resolvePath nm = go
 resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
 resolveAll nm0 = fmap ILM.fromList (runExcept (traverse (uncurry goRoot) (ILM.toList nm0)))
  where
-  goRoot a (NodeInfo b chi) = do
+  goRoot a (NodeInfo sz chi b) = do
     b' <- case b of
       NodeChoice ns -> pure (NodeChoice ns)
       NodeClone n -> pure (NodeClone n)
       NodeSymbol (SymbolNode cs fe) -> do
         cs' <- traverse (traverse (goRes a chi)) cs
         pure (NodeSymbol (SymbolNode cs' fe))
-    pure (a, NodeInfo b' chi)
+    pure (a, NodeInfo sz chi b')
   goRes a chi = either throwError pure . resolvePath nm0 a chi
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
@@ -252,7 +250,7 @@ enumerate (NodeGraph r nm _) = go r
  where
   go a = case ILM.lookup a nm of
     Nothing -> throwError (ResErrNodeMissing a)
-    Just (NodeInfo b _) -> case b of
+    Just (NodeInfo _ _ b) -> case b of
       NodeSymbol _ -> todo
       NodeChoice ns -> interleaveSeq (Seq.fromList (fmap go (ILS.toList ns)))
       NodeClone _ -> todo

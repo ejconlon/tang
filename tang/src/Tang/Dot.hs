@@ -3,17 +3,15 @@
 module Tang.Dot where
 
 import Control.Monad (unless)
-import Data.Coerce (Coercible)
 import Data.Foldable (for_, toList)
 import Data.List (intersperse)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Text qualified as T
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
-import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
+import IntLike.Set qualified as ILS
 import Tang.Ecta
   ( ChildIx (..)
   , Con (..)
@@ -25,42 +23,14 @@ import Tang.Ecta
   , NodeMap
   , Path
   , Seg (..)
-  , Symbol (..)
   , SymbolNode (..)
   )
-import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders, renderText)
+import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders)
 
 type Attrs = Map Text [Text]
 
--- decNodeAttrs :: Attrs
--- decNodeAttrs = Map.fromList
---   [ ("shape", ["circle"])
---   , ("style", ["filled", "dashed"])
---   , ("fillcolor", ["white"])
---   , ("color", ["red"])
---   , ("fontcolor", ["red"])
---   ]
---
--- decEdgeAttrs :: Attrs
--- decEdgeAttrs = Map.fromList
---   [ ("style", ["dashed"])
---   , ("color", ["red"])
---   ]
---
--- conNodeAttrs :: Attrs
--- conNodeAttrs = Map.fromList
---   [ ("shape", ["circle"])
---   , ("style", ["filled", "solid"])
---   , ("fillcolor", ["white"])
---   , ("color", ["blue"])
---   , ("fontcolor", ["blue"])
---   ]
---
--- conEdgeAttrs :: Attrs
--- conEdgeAttrs = Map.fromList
---   [ ("style", ["solid"])
---   , ("color", ["blue"])
---   ]
+choiceEdgeAttrs :: Attrs
+choiceEdgeAttrs = Map.empty
 
 cloneEdgeAttrs :: Attrs
 cloneEdgeAttrs = Map.empty
@@ -104,13 +74,14 @@ renderCon = \case
   ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
 renderNodeMap :: (f Edge -> Builder) -> (c -> Builder) -> NodeMap f c -> RenderM ()
-renderNodeMap g f m = do
+renderNodeMap _g _f m = do
   renderBuilder "digraph g {\n"
-  for_ (ILM.toList m) $ \(NodeId i, NodeInfo n _) -> do
+  for_ (ILM.toList m) $ \(NodeId i, NodeInfo _ _ n) -> do
     let it = fromShowable i
     case n of
       NodeSymbol (SymbolNode _ _) -> error "TODO"
-      NodeChoice _ -> error "TODO"
+      NodeChoice js -> for_ (ILS.toList js) $ \(NodeId j) ->
+        renderEdge it (fromShowable j) choiceEdgeAttrs
       NodeClone (NodeId j) -> renderEdge it (fromShowable j) cloneEdgeAttrs
     pure ()
   renderBuilder "}\n"
