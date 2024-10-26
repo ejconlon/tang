@@ -4,6 +4,7 @@ module Tang.Search
   , SearchM
   , searchN
   , search1
+  , interleaveSeq
   )
 where
 
@@ -14,6 +15,8 @@ import Control.Monad.Identity (Identity (..))
 import Control.Monad.Logic (LogicT, MonadLogic (..), observeManyT)
 import Control.Monad.State.Strict (MonadState, StateT (..))
 import Data.Functor ((<&>))
+import Data.Sequence (Seq (..))
+import Data.Sequence qualified as Seq
 
 newtype SearchT e s m a = SearchT {unSearchT :: ExceptT e (StateT s (LogicT m)) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadState s)
@@ -53,3 +56,11 @@ search1 m s =
   searchN 1 m s <&> \case
     [] -> Nothing
     z : _ -> Just z
+
+interleaveSeq :: (Monad m) => Seq (SearchT e s m a) -> SearchT e s m a
+interleaveSeq = \case
+  Empty -> empty
+  m :<| Empty -> m
+  s ->
+    let (s1, s2) = Seq.splitAt (div (Seq.length s) 2) s
+    in  interleave (interleaveSeq s1) (interleaveSeq s2)

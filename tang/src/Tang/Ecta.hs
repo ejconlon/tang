@@ -6,7 +6,7 @@ import Control.Applicative (empty)
 import Control.Exception (Exception)
 import Control.Monad.Except (Except, ExceptT, MonadError (..), runExcept, runExceptT)
 import Control.Monad.Identity (Identity)
-import Control.Monad.Logic (LogicT)
+import Control.Monad.Logic (interleave)
 import Control.Monad.State.Strict (StateT, execStateT, get, modify', runState, state)
 import Control.Placeholder (todo)
 import Data.Foldable (toList, traverse_)
@@ -24,6 +24,7 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
+import Tang.Search (SearchM, interleaveSeq)
 
 -- import Tang.Search (SearchM, SearchSt (..), runObserveM, search, SearchT, runObserveT)
 
@@ -254,19 +255,16 @@ deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
 
 deriving stock instance (Show (f (Fix f))) => Show (Fix f)
 
--- type EnumFwd = ()
--- type EnumBwd = ()
--- type EnumSt = SearchSt EnumFwd EnumBwd
---
--- initEnumSt :: EnumSt
--- initEnumSt = SearchSt () ()
---
--- type EnumM = SearchM ResErr EnumFwd EnumBwd
---
--- runEnumM :: Int -> EnumM a -> [(Either ResErr a, EnumSt)]
--- runEnumM n m = runObserveM (search n (m >>= \ea -> (ea,) <$> get)) initEnumSt
---
--- enumerate :: (Traversable f) => NodeGraph f (Con ResPath) -> EnumM (Fix f)
--- enumerate (NodeGraph r nm _) = go r
---  where
---   go r = undefined
+type EnumSt = ()
+
+type EnumM = SearchM ResErr EnumSt
+
+enumerate :: (Traversable f) => NodeGraph f (Con ResPath) -> EnumM (Fix f)
+enumerate (NodeGraph r nm _) = go r
+ where
+  go a = case ILM.lookup a nm of
+    Nothing -> throwError (ResErrNodeMissing a)
+    Just (NodeInfo b _) -> case b of
+      NodeSymbol _ -> todo
+      NodeChoice ns -> interleaveSeq (Seq.fromList (fmap go (ILS.toList ns)))
+      NodeClone _ -> todo
