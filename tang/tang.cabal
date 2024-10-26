@@ -28,16 +28,11 @@ library
       Tang.Dot
       Tang.Ecta
       Tang.Example
-      Tang.PropDef
       Tang.Render
       Tang.Search
-      Tang.Solver
       Tang.Test
       Tang.Test.Search
-      Tang.UnionFind
       Tang.Util
-      Tang.VarEnv
-      Tang.Z3
   other-modules:
       Paths_tang
   hs-source-dirs:
