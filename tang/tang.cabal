@@ -33,6 +33,7 @@ library
       Tang.Search
       Tang.Solver
       Tang.Test
+      Tang.Test.Search
       Tang.UnionFind
       Tang.Util
       Tang.VarEnv

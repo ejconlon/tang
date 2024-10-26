@@ -1,6 +1,7 @@
 module Tang.Test where
 
 import PropUnit (TestTree, testGroup, testMain, testUnit, (===))
+import Tang.Test.Search (testSearch)
 
 testDummy :: TestTree
 testDummy = testUnit "dummy" $ do
@@ -13,4 +14,5 @@ main = testMain $ \_ ->
   testGroup
     "Tang"
     [ testDummy
+    , testSearch
     ]

@@ -1,96 +1,55 @@
--- | "Correct" backtracking search.
+-- | Backtracking search.
 module Tang.Search
-  ( SearchSt (..)
-  , ObserveT
-  , ObserveM
-  , runObserveT
-  , runObserveM
-  , SearchT
+  ( SearchT
   , SearchM
-  , search
+  , searchN
+  , search1
   )
 where
 
 import Control.Applicative (Alternative (..))
-import Control.Monad.Except (MonadError)
+import Control.Monad.Except (ExceptT (..), MonadError, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Identity (Identity (..))
 import Control.Monad.Logic (LogicT, MonadLogic (..), observeManyT)
-import Control.Monad.State.Strict (MonadState (..), StateT, gets, modify', runStateT)
-import Control.Monad.Trans (MonadTrans (..))
-import Data.Bifunctor (second)
+import Control.Monad.State.Strict (MonadState, StateT (..))
+import Data.Functor ((<&>))
 
--- | Backtracking state - the x component goes forward, the y component backtracks
--- All mentions of state below are really about the backtracking state component.
--- The forward state component is pretty boring.
-data SearchSt x y = SearchSt
-  { ssFwd :: !x
-  , ssBwd :: !y
-  }
-  deriving stock (Eq, Ord, Show)
+newtype SearchT e s m a = SearchT {unSearchT :: ExceptT e (StateT s (LogicT m)) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadState s)
 
--- | Effects used during search: forward and backtracking state, plus whatever
--- else you want to lift in (like errors).
-newtype ObserveT x y m a = ObserveT {unObserveT :: StateT (SearchSt x y) m a}
-  deriving newtype
-    (Functor, Applicative, Monad, MonadState (SearchSt x y), MonadError e, MonadIO, MonadTrans, Alternative)
+type SearchM e s = SearchT e s Identity
 
-type ObserveM x y = ObserveT x y Identity
+-- private
+unwrap :: SearchT e s m a -> s -> LogicT m (Either e a, s)
+unwrap = runStateT . runExceptT . unSearchT
 
--- | Runs the effects.
-runObserveT :: ObserveT x y m a -> SearchSt x y -> m (a, SearchSt x y)
-runObserveT = runStateT . unObserveT
+-- private
+wrap :: (s -> LogicT m (Either e a, s)) -> SearchT e s m a
+wrap = SearchT . ExceptT . StateT
 
-runObserveM :: ObserveM x y a -> SearchSt x y -> (a, SearchSt x y)
-runObserveM m s = runIdentity (runObserveT m s)
+instance Alternative (SearchT e s m) where
+  empty = wrap (const empty)
+  x <|> y = wrap (\s -> unwrap x s <|> unwrap y s)
 
--- | Backtracking search monad. Take care not to expose the constructor!
--- The major issue with backtracking is that the final state is that of
--- the last branch that has executed. In order for the 'msplit' law to hold
--- (`msplit m >>= reflect = m`) we have to ensure that the same state
--- is observable on all exit points. Basically the only way to do this is to
--- not make the state visible at all externally, which requires that we
--- protect the constructor here and only allow elimination of this type
--- with 'observeMany, which resets the state for us.
-newtype SearchT x y m a = SearchT {unSearchT :: LogicT (ObserveT x y m) a}
-  deriving newtype (Functor, Applicative, Monad, MonadState (SearchSt x y), MonadError e, MonadIO)
+instance (Monad m) => MonadLogic (SearchT e s m) where
+  msplit x =
+    let f = unwrap x
+    in  wrap $ \s0 -> do
+          z <- msplit (f s0)
+          case z of
+            Nothing -> empty
+            Just ((ea, s1), tl) ->
+              case ea of
+                Left e -> pure (Left e, s1)
+                Right a -> pure (Right (Just (a, wrap (const tl))), s1)
+  interleave x y = wrap (\s -> interleave (unwrap x s) (unwrap y s))
 
-type SearchM x y = SearchT x y Identity
+searchN :: (Monad m) => Int -> SearchT e s m a -> s -> m [(Either e a, s)]
+searchN n m s = observeManyT n (unwrap m s)
 
-instance (Monad m) => Alternative (SearchT x y m) where
-  empty = SearchT empty
-  x <|> y = do
-    saved <- gets ssBwd
-    -- Restore the current state before going down the right branch.
-    SearchT (unSearchT x <|> unSearchT (restore saved y))
-
-instance (Monad m) => MonadLogic (SearchT x y m) where
-  msplit x = SearchT (fmap (fmap (second SearchT)) (msplit (unSearchT x)))
-  interleave x y = do
-    saved <- gets ssBwd
-    -- Again restore the current state before going down the right branch.
-    SearchT (interleave (unSearchT x) (unSearchT (restore saved y)))
-
-instance MonadTrans (SearchT x y) where
-  lift = SearchT . lift . lift
-
--- | Wraps logict's 'observeManyT' and forces us to 'reset' the backtracking state.
-search :: (Monad m) => Int -> SearchT x y m a -> ObserveT x y m [a]
-search n = observeManyT n . unSearchT . reset
-
--- At many points below we'll need to restore a saved state before
--- continuing the search.
-restore :: (Monad m) => y -> SearchT x y m a -> SearchT x y m a
-restore saved x = modify' (\st -> st {ssBwd = saved}) *> x
-
--- Restores the backtracked state after all results have been enumerated.
-finalize :: (Monad m) => y -> SearchT x y m a -> SearchT x y m a
-finalize saved x = SearchT (unSearchT x <|> unSearchT (restore saved empty))
-
--- Ensures the backtrack state is returned to the current state.
--- This is run on the outside of the search so the backtracked state is
--- not externally observable.
-reset :: (Monad m) => SearchT x y m a -> SearchT x y m a
-reset x = do
-  saved <- gets ssBwd
-  finalize saved x
+search1 :: (Monad m) => SearchT e s m a -> s -> m (Maybe (Either e a, s))
+search1 m s =
+  searchN 1 m s <&> \case
+    [] -> Nothing
+    z : _ -> Just z
