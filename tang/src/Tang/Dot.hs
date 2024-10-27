@@ -88,7 +88,7 @@ renderNodeGraph :: (f Edge -> Builder) -> (c -> Builder) -> NodeGraph f c -> Ren
 renderNodeGraph g _f (NodeGraph root m _) = do
   renderBuilder "digraph g {\n"
   -- Emit nodes
-  for_ (ILM.toList m) $ \(i, NodeInfo _ _ n) -> do
+  for_ (ILM.toList m) $ \(i, NodeInfo _ _ _ n) -> do
     let nid = fromShowable (unNodeId i)
         (nlab, mxlab, attrs) = case n of
           NodeSymbol (SymbolNode _ fe) ->
