@@ -2,6 +2,7 @@
 module Tang.Search
   ( SearchT
   , SearchM
+  , searchAll
   , searchN
   , search1
   , interleaveSeq
@@ -12,7 +13,7 @@ import Control.Applicative (Alternative (..))
 import Control.Monad.Except (ExceptT (..), MonadError, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Identity (Identity (..))
-import Control.Monad.Logic (LogicT, MonadLogic (..), observeManyT)
+import Control.Monad.Logic (LogicT, MonadLogic (..), observeAllT, observeManyT)
 import Control.Monad.State.Strict (MonadState, StateT (..))
 import Data.Functor ((<&>))
 import Data.Sequence (Seq (..))
@@ -47,6 +48,9 @@ instance (Monad m) => MonadLogic (SearchT e s m) where
                 Left e -> pure (Left e, s1)
                 Right a -> pure (Right (Just (a, wrap (const tl))), s1)
   interleave x y = wrap (\s -> interleave (unwrap x s) (unwrap y s))
+
+searchAll :: (Monad m) => SearchT e s m a -> s -> m [(Either e a, s)]
+searchAll m s = observeAllT (unwrap m s)
 
 searchN :: (Monad m) => Int -> SearchT e s m a -> s -> m [(Either e a, s)]
 searchN n m s = observeManyT n (unwrap m s)

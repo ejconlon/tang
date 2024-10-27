@@ -31,6 +31,7 @@ library
       Tang.Search
       Tang.Test
       Tang.Test.Dot
+      Tang.Test.Enumerate
       Tang.Test.Ring
       Tang.Test.Search
       Tang.Test.Symbolic
