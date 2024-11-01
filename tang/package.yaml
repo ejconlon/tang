@@ -23,6 +23,7 @@ dependencies:
 - recursion-schemes
 - int-like >= 0.1.3
 - z3 >= 411.0.1
+- these
 - optics
 # test deps
 - prop-unit >= 0.1.3
