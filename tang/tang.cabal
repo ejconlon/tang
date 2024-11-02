@@ -28,6 +28,7 @@ library
       Tang.Align
       Tang.Dot
       Tang.Ecta
+      Tang.Enumerate
       Tang.Render
       Tang.Search
       Tang.Test

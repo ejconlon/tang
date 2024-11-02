@@ -11,33 +11,33 @@ data IxPair z = IxPair !Int !z
   deriving stock (Functor)
 
 -- Cribbed from indexed-traversable but made strict
-newtype IxM m a = IxM { unIxM :: Int -> IxPair (m a) }
+newtype IxM m a = IxM {unIxM :: Int -> IxPair (m a)}
   deriving stock (Functor)
 
-instance Applicative m => Applicative (IxM m) where
+instance (Applicative m) => Applicative (IxM m) where
   pure a = IxM (\i -> IxPair i (pure a))
   IxM x <*> IxM y = IxM $ \i ->
     let IxPair _ xx = x i
         IxPair j yy = y i
-    in IxPair j (xx <*> yy)
+    in  IxPair j (xx <*> yy)
   liftA2 f (IxM x) (IxM y) = IxM $ \i ->
     let IxPair _ xx = x i
         IxPair j yy = y i
-    in IxPair j (liftA2 f xx yy)
+    in  IxPair j (liftA2 f xx yy)
 
 traverseWithIndex :: (Traversable f, Applicative m) => (Int -> a -> m b) -> f a -> m (f b)
 traverseWithIndex f s =
   let g a = IxM (\i -> IxPair (i + 1) (f i a))
       t = traverse g s
       IxPair _ mfb = unIxM t 0
-  in mfb
+  in  mfb
 
 traverseWithIndex_ :: (Foldable f, Applicative m) => (Int -> a -> m ()) -> f a -> m ()
 traverseWithIndex_ f s =
   let g a = IxM (\i -> IxPair (i + 1) (f i a))
       t = traverse_ g s
       IxPair _ mu = unIxM t 0
-  in mu
+  in  mu
 
 forWithIndex :: (Traversable f, Applicative m) => f a -> (Int -> a -> m b) -> m (f b)
 forWithIndex = flip traverseWithIndex

@@ -6,7 +6,6 @@ import Control.Exception (Exception)
 import Control.Monad.Except (runExcept, throwError)
 import Control.Monad.Identity (Identity)
 import Control.Monad.State.Strict (StateT, modify', runState, state)
-import Control.Placeholder (todo)
 import Data.Foldable (toList)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
@@ -22,7 +21,6 @@ import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
-import Tang.Search (SearchM, interleaveSeq)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -39,10 +37,6 @@ newtype ChildIx = ChildIx {unChildIx :: Int}
   deriving stock (Show)
 
 newtype NodeId = NodeId {unNodeId :: Int}
-  deriving newtype (Eq, Ord, Num, Enum)
-  deriving stock (Show)
-
-newtype ChoiceId = ChoiceId {unChoiceId :: Int}
   deriving newtype (Eq, Ord, Num, Enum)
   deriving stock (Show)
 
@@ -206,6 +200,7 @@ data ResPath = ResPath !NodeId !Path
 isFullyResolved :: ResPath -> Bool
 isFullyResolved (ResPath _ p) = Seq.null p
 
+-- private
 resolvePath :: NodeMap f c -> NodeId -> ChildMap -> Path -> Either ResErr ResPath
 resolvePath nm = go
  where
@@ -233,25 +228,3 @@ resolveAll nm0 = fmap ILM.fromList (runExcept (traverse (uncurry goRoot) (ILM.to
         pure (NodeSymbol (SymbolNode cs' fe))
     pure (a, NodeInfo sz chi lab b')
   goRes a chi = either throwError pure . resolvePath nm0 a chi
-
-newtype Fix f = Fix {unFix :: f (Fix f)}
-
-deriving stock instance (Eq (f (Fix f))) => Eq (Fix f)
-
-deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
-
-deriving stock instance (Show (f (Fix f))) => Show (Fix f)
-
-type EnumSt = ()
-
-type EnumM = SearchM ResErr EnumSt
-
-enumerate :: (Traversable f) => NodeGraph f (Con ResPath) -> EnumM (Fix f)
-enumerate (NodeGraph r nm _) = go r
- where
-  go a = case ILM.lookup a nm of
-    Nothing -> throwError (ResErrNodeMissing a)
-    Just (NodeInfo _ _ _ b) -> case b of
-      NodeSymbol _ -> todo
-      NodeChoice ns -> interleaveSeq (Seq.fromList (fmap go (ILS.toList ns)))
-      NodeClone _ -> todo
