@@ -4,12 +4,14 @@ import PropUnit (testGroup, testMain)
 import Tang.Test.Dot (testDot)
 import Tang.Test.Enumerate (testEnumerate)
 import Tang.Test.Search (testSearch)
+import Tang.Test.UnionMap (testUm)
 
 main :: IO ()
 main = testMain $ \_ ->
   testGroup
     "Tang"
-    [ testSearch
+    [ testUm
+    , testSearch
     , testEnumerate
     , testDot
     ]

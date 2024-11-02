@@ -37,7 +37,9 @@ library
       Tang.Test.Enumerate
       Tang.Test.Ring
       Tang.Test.Search
+      Tang.Test.State
       Tang.Test.Symbolic
+      Tang.Test.UnionMap
       Tang.UnionMap
       Tang.Util
   other-modules:
