@@ -28,6 +28,8 @@ library
       Tang.Align
       Tang.Dot
       Tang.Ecta
+      Tang.Graph
+      Tang.Process
       Tang.Render
       Tang.Search
       Tang.Test
@@ -36,7 +38,6 @@ library
       Tang.Test.Ring
       Tang.Test.Search
       Tang.Test.Symbolic
-      Tang.Unify
       Tang.UnionMap
       Tang.Util
   other-modules:
@@ -80,6 +81,7 @@ library
     , int-like >=0.1.3
     , logict
     , mtl
+    , nonempty-containers
     , optics
     , placeholder
     , pretty-show
@@ -135,6 +137,7 @@ test-suite tang-test
     , int-like >=0.1.3
     , logict
     , mtl
+    , nonempty-containers
     , optics
     , placeholder
     , pretty-show

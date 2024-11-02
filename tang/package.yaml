@@ -24,6 +24,7 @@ dependencies:
 - int-like >= 0.1.3
 - z3 >= 411.0.1
 - these
+- nonempty-containers
 - optics
 # test deps
 - prop-unit >= 0.1.3
