@@ -2,16 +2,12 @@
 
 module Tang.Ecta where
 
-import Control.Exception (Exception)
-import Control.Monad.Except (runExcept, throwError)
-import Control.Monad.Identity (Identity)
-import Control.Monad.State.Strict (StateT, modify', runState, state)
+import Control.Monad.State.Strict (MonadState, State, runState)
 import Data.Foldable (toList)
 import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
-import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
@@ -20,7 +16,8 @@ import IntLike.MultiMap (IntLikeMultiMap)
 import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Traversal, Traversal', foldlOf', traversalVL, traverseOf)
+import Optics (Lens', Traversal, Traversal', equality', foldlOf', traversalVL, traverseOf)
+import Tang.Util (modifyML, stateML)
 
 newtype NatTrans f g = NatTrans {runNatTrans :: forall a. f a -> g a}
 
@@ -136,9 +133,15 @@ deriving stock instance (Eq c, Eq (f Edge)) => Eq (NodeSt f c)
 
 deriving stock instance (Show c, Show (f Edge)) => Show (NodeSt f c)
 
-type NodeT f c = StateT (NodeSt f c)
+type NodeM f c = State (NodeSt f c)
 
-type NodeM f c = NodeT f c Identity
+class HasNodeSt f c s | s -> f c where
+  nodeStL :: Lens' s (NodeSt f c)
+
+instance HasNodeSt f c (NodeSt f c) where
+  nodeStL = equality'
+
+type NodeC f c s m = (HasNodeSt f c s, MonadState s m)
 
 build :: NodeM f c NodeId -> NodeGraph f c
 build m =
@@ -155,74 +158,33 @@ processEdges a sn par = snFoldEdges (0, Map.empty, ILM.empty, par) sn $ \(i, cm,
   in  (i', cm'', lm', pm')
 
 -- private
-node' :: (Traversable f) => NodeId -> Node f c -> NodeM f c ()
+node' :: (Traversable f, NodeC f c s m) => NodeId -> Node f c -> m ()
 node' a b = do
-  modify' $ \(NodeSt nx nm par0) ->
+  modifyML nodeStL $ \(NodeSt nx nm par0) ->
     let (sz2, chi2, lab2, par2) = case b of
           NodeSymbol sn -> processEdges a sn par0
           _ -> (0, Map.empty, ILM.empty, par0)
         nm' = ILM.insert a (NodeInfo sz2 chi2 lab2 b) nm
-    in  NodeSt nx nm' par2
+    in  pure (NodeSt nx nm' par2)
 
 -- private
-fresh :: NodeM f c NodeId
-fresh = state (\ns -> let nx = ns.nsNext in (nx, ns {nsNext = succ nx}))
+fresh :: (NodeC f c s m) => m NodeId
+fresh = stateML nodeStL (\ns -> let nx = ns.nsNext in pure (nx, ns {nsNext = succ nx}))
 
-node :: (Traversable f) => Node f c -> NodeM f c NodeId
+node :: (Traversable f, NodeC f c s m) => Node f c -> m NodeId
 node b = do
   a <- fresh
   node' a b
   pure a
 
-recursive :: (Traversable f) => (NodeId -> NodeM f c (Node f c)) -> NodeM f c NodeId
+recursive :: (Traversable f, NodeC f c s m) => (NodeId -> m (Node f c)) -> m NodeId
 recursive f = do
   a <- fresh
   b <- f a
   node' a b
   pure a
 
-tree :: (Recursive t, Base t ~ f, Traversable f) => t -> NodeM f c NodeId
+tree :: (Recursive t, Base t ~ f, Traversable f, NodeC f c s m) => t -> m NodeId
 tree t = do
   fn <- traverse tree (project t)
   node (NodeSymbol (SymbolNode Empty (fmap (Edge Nothing) fn)))
-
-data ResErr
-  = ResErrSegMissing !Seg
-  | ResErrNodeMissing !NodeId
-  deriving stock (Eq, Ord, Show)
-
-instance Exception ResErr
-
-data ResPath = ResPath !NodeId !Path
-  deriving stock (Eq, Ord, Show)
-
-isFullyResolved :: ResPath -> Bool
-isFullyResolved (ResPath _ p) = Seq.null p
-
--- private
-resolvePath :: NodeMap f c -> NodeId -> ChildMap -> Path -> Either ResErr ResPath
-resolvePath nm = go
- where
-  go a chi = \case
-    Empty -> pure (ResPath a Empty)
-    p :<| ps -> case Map.lookup p chi of
-      Nothing -> throwError (ResErrSegMissing p)
-      Just a' -> case ILM.lookup a' nm of
-        Nothing -> throwError (ResErrNodeMissing a')
-        Just (NodeInfo _ chi' _ b') ->
-          case b' of
-            NodeSymbol _ -> go a' chi' ps
-            _ -> pure (ResPath a' ps)
-
-resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
-resolveAll nm0 = fmap ILM.fromList (runExcept (traverse (uncurry goRoot) (ILM.toList nm0)))
- where
-  goRoot a (NodeInfo sz chi lab b) = do
-    b' <- case b of
-      NodeChoice ns -> pure (NodeChoice ns)
-      NodeClone n -> pure (NodeClone n)
-      NodeSymbol (SymbolNode cs fe) -> do
-        cs' <- traverse (traverse (goRes a chi)) cs
-        pure (NodeSymbol (SymbolNode cs' fe))
-    pure (a, NodeInfo sz chi lab b')
-  goRes a chi = either throwError pure . resolvePath nm0 a chi

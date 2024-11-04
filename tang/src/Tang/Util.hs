@@ -51,15 +51,15 @@ seqFromFoldable = Seq.fromList . toList
 foldM' :: (Foldable f, Monad m) => b -> f a -> (b -> a -> m b) -> m b
 foldM' b fa f = foldM f b fa
 
-runStateLens :: (MonadState s m) => Lens' s a -> (a -> m (b, a)) -> m b
-runStateLens l f = do
+stateML :: (MonadState s m) => Lens' s a -> (a -> m (b, a)) -> m b
+stateML l f = do
   a <- gets (view l)
   (b, a') <- f a
   modify' (set l a')
   pure b
 
-execStateLens :: (MonadState s m) => Lens' s a -> (a -> m a) -> m ()
-execStateLens l f = do
+modifyML :: (MonadState s m) => Lens' s a -> (a -> m a) -> m ()
+modifyML l f = do
   a <- gets (view l)
   a' <- f a
   modify' (set l a')
