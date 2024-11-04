@@ -189,7 +189,6 @@ tree t = do
 data ResErr
   = ResErrSegMissing !Seg
   | ResErrNodeMissing !NodeId
-  | ResErrPathChoice !NodeId
   deriving stock (Eq, Ord, Show)
 
 instance Exception ResErr
@@ -212,9 +211,8 @@ resolvePath nm = go
         Nothing -> throwError (ResErrNodeMissing a')
         Just (NodeInfo _ chi' _ b') ->
           case b' of
-            NodeChoice _ -> throwError (ResErrPathChoice a')
-            NodeClone _ -> pure (ResPath a' ps)
             NodeSymbol _ -> go a' chi' ps
+            _ -> pure (ResPath a' ps)
 
 resolveAll :: (Traversable g) => NodeMap f (g Path) -> Either ResErr (NodeMap f (g ResPath))
 resolveAll nm0 = fmap ILM.fromList (runExcept (traverse (uncurry goRoot) (ILM.toList nm0)))
