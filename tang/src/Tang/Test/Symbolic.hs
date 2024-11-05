@@ -3,9 +3,7 @@
 
 module Tang.Test.Symbolic where
 
-import Control.Monad (replicateM)
 import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
@@ -26,8 +24,8 @@ exampleX = addSymbol [] (Symbolic "x" [])
 
 exampleFxx :: GraphM Symbolic Con NodeId
 exampleFxx = do
-  exs <- fmap Seq.fromList (replicateM 2 (fmap (Edge Nothing) exampleX))
-  addSymbol [] (Symbolic "f" exs)
+  ex <- fmap (Edge Nothing) exampleX
+  addSymbol [] (Symbolic "f" [ex, ex])
 
 renderSymbolic :: Symbolic a -> Builder
 renderSymbolic (Symbolic (Symbol s) _) = TLB.fromText s
