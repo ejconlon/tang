@@ -3,15 +3,9 @@
 module Tang.Enumerate where
 
 import Control.Exception (Exception)
-import Control.Monad.Except (throwError)
-import Control.Placeholder (todo)
-import Data.Sequence qualified as Seq
-import IntLike.Map (IntLikeMap)
-import IntLike.Map qualified as ILM
-import IntLike.Set qualified as ILS
 import Optics (Traversal', lens, traversed)
 import Tang.Ecta
-import Tang.Search (SearchM, interleaveSeq)
+import Tang.Search (SearchM)
 import Tang.UnionMap (UnionMap)
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
@@ -45,13 +39,13 @@ elemTraversal = traversed
 type Union f = UnionMap NodeId (Elem f)
 
 data EnumSt f c = EnumSt
-  { bsNode :: !(NodeSt f c)
+  { bsGraph :: !(NodeGraph f c)
   , bsMeta :: !MetaVar
   , bsUnion :: !(Union f)
   }
 
-instance HasNodeSt f c (EnumSt f c) where
-  nodeStL = lens bsNode (\x y -> x {bsNode = y})
+instance HasNodeGraph f c (EnumSt f c) where
+  nodeGraphL = lens bsGraph (\x y -> x {bsGraph = y})
 
 data EnumErr
   = EnumErrNodeMissing !NodeId
@@ -62,7 +56,7 @@ instance Exception EnumErr
 
 type EnumM f c = SearchM EnumErr (EnumSt f c)
 
--- enumerate :: (Traversable f) => NodeGraph f (Con Path) -> EnumM f c (Fix f)
+-- enumerate :: (Traversable f) => NodeGraph f Con -> EnumM f c (Fix f)
 -- enumerate (NodeGraph r nm _) = go r
 --  where
 --   go a = case ILM.lookup a nm of
