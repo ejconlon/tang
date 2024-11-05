@@ -22,9 +22,9 @@ deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
 
 deriving stock instance (Show (f (Fix f))) => Show (Fix f)
 
--- newtype MetaVar = MetaVar {unMetaVar :: Int}
---   deriving stock (Show)
---   deriving newtype (Eq, Ord, Enum, Num)
+newtype MetaVar = MetaVar {unMetaVar :: Int}
+  deriving stock (Show)
+  deriving newtype (Eq, Ord, Enum, Num)
 
 data ElemF f r
   = ElemMeta
@@ -46,6 +46,7 @@ type Union f = UnionMap NodeId (Elem f)
 
 data EnumSt f c = EnumSt
   { bsNode :: !(NodeSt f c)
+  , bsMeta :: !MetaVar
   , bsUnion :: !(Union f)
   }
 
@@ -61,12 +62,13 @@ instance Exception EnumErr
 
 type EnumM f c = SearchM EnumErr (EnumSt f c)
 
-enumerate :: (Traversable f) => NodeGraph f (Con Path) -> EnumM f c (Fix f)
-enumerate (NodeGraph r nm _) = go r
- where
-  go a = case ILM.lookup a nm of
-    Nothing -> throwError (EnumErrNodeMissing a)
-    Just (NodeInfo _ _ _ b) -> case b of
-      NodeSymbol _ -> todo
-      NodeChoice ns -> interleaveSeq (Seq.fromList (fmap go (ILS.toList ns)))
-      NodeClone _ -> todo
+-- enumerate :: (Traversable f) => NodeGraph f (Con Path) -> EnumM f c (Fix f)
+-- enumerate (NodeGraph r nm _) = go r
+--  where
+--   go a = case ILM.lookup a nm of
+--     Nothing -> throwError (EnumErrNodeMissing a)
+--     Just (NodeInfo _ _ _ b) -> case b of
+--       NodeSymbol _ -> todo
+--       NodeUnion _ -> todo
+--       NodeIntersect _ -> todo
+--       NodeClone _ -> todo

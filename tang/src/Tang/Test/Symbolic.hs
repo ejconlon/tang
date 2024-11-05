@@ -14,8 +14,8 @@ import Tang.Ecta
   , NodeGraph
   , Path
   , Symbol (..)
-  , SymbolNode (..)
-  , build
+  , buildGraph
+  , mkSymbolNode
   , node
   )
 import Tang.Render (RenderM)
@@ -26,13 +26,13 @@ data Symbolic a = Symbolic !Symbol !(Seq a)
 type SymbolicNodeGraph = NodeGraph Symbolic (Con Path)
 
 exampleX :: SymbolicNodeGraph
-exampleX = build $ do
-  node (NodeSymbol (SymbolNode [] (Symbolic "x" [])))
+exampleX = buildGraph $ do
+  node (NodeSymbol (mkSymbolNode [] (Symbolic "x" [])))
 
 exampleFxx :: SymbolicNodeGraph
-exampleFxx = build $ do
-  ex <- Edge Nothing <$> node (NodeSymbol (SymbolNode [] (Symbolic "x" [])))
-  node (NodeSymbol (SymbolNode [] (Symbolic "f" [ex, ex])))
+exampleFxx = buildGraph $ do
+  ex <- Edge Nothing <$> node (NodeSymbol (mkSymbolNode [] (Symbolic "x" [])))
+  node (NodeSymbol (mkSymbolNode [] (Symbolic "f" [ex, ex])))
 
 renderSymbolic :: Symbolic a -> Builder
 renderSymbolic (Symbolic (Symbol s) _) = TLB.fromText s

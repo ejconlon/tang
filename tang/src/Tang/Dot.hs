@@ -8,11 +8,11 @@ import Data.List (intersperse)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
 import IntLike.Map qualified as ILM
-import IntLike.Set qualified as ILS
 import Tang.Ecta
   ( ChildIx (..)
   , Con (..)
@@ -21,9 +21,9 @@ import Tang.Ecta
   , Node (..)
   , NodeGraph (..)
   , NodeId (..)
-  , NodeInfo (..)
   , Path
   , Seg (..)
+  , SymbolInfo (..)
   , SymbolNode (..)
   )
 import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders)
@@ -33,8 +33,11 @@ type Attrs = Map Text [Text]
 symbolNodeAttrs :: Attrs
 symbolNodeAttrs = Map.fromList [("shape", ["circle"])]
 
-choiceNodeAttrs :: Attrs
-choiceNodeAttrs = Map.fromList [("shape", ["square"])]
+unionNodeAttrs :: Attrs
+unionNodeAttrs = Map.fromList [("shape", ["square"])]
+
+intersectNodeAttrs :: Attrs
+intersectNodeAttrs = Map.fromList [("shape", ["diamond"])]
 
 cloneNodeAttrs :: Attrs
 cloneNodeAttrs = Map.fromList [("shape", ["octagon"])]
@@ -88,35 +91,41 @@ renderCon :: Con Path -> Builder
 renderCon = \case
   ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
-renderNodeGraph :: (f Edge -> Builder) -> (c -> Builder) -> NodeGraph f c -> RenderM ()
+renderNodeGraph :: (f (Edge NodeId) -> Builder) -> (c -> Builder) -> NodeGraph f c -> RenderM ()
 renderNodeGraph g _f (NodeGraph root m _) = do
   renderBuilder "digraph g {\n"
   -- Emit nodes
-  for_ (ILM.toList m) $ \(i, NodeInfo _ _ _ n) -> do
+  for_ (ILM.toList m) $ \(i, n) -> do
     let nid = fromShowable (unNodeId i)
         (nlab, mxlab, attrs) = case n of
-          NodeSymbol (SymbolNode _ fe) ->
+          NodeSymbol (SymbolNode _ _ fe) ->
             (g fe, Nothing, symbolNodeAttrs)
-          NodeChoice _ -> do
-            ("", Nothing, choiceNodeAttrs)
+          NodeUnion _ -> do
+            ("", Nothing, unionNodeAttrs)
+          NodeIntersect _ -> do
+            ("", Nothing, intersectNodeAttrs)
           NodeClone _ -> do
             ("", Nothing, cloneNodeAttrs)
     let attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)
     renderNode nid nlab mxlab attrs'
   -- Emit edges
-  for_ (ILM.toList m) $ \(i, NodeInfo sz cm lm n) -> do
+  for_ (ILM.toList m) $ \(i, n) -> do
     let nid = fromShowable (unNodeId i)
     case n of
-      NodeSymbol (SymbolNode _ _fe) -> do
+      NodeSymbol (SymbolNode _ (SymbolInfo sz _ ixLab ixVal) _) -> do
         for_ (fmap ChildIx [0 .. sz - 1]) $ \ix -> do
-          let mlab = fmap (TLB.fromText . unLabel) (ILM.lookup ix lm)
-          case Map.lookup (SegIndex ix) cm of
+          let mlab = fmap (TLB.fromText . unLabel) (ILM.lookup ix ixLab)
+          case Seq.lookup (unChildIx ix) ixVal of
             Nothing -> pure ()
             Just cid -> do
               let cidb = fromShowable (unNodeId cid)
               renderEdge nid cidb mlab normalEdgeAttrs
-      NodeChoice js ->
-        for_ (ILS.toList js) $ \j -> do
+      NodeUnion js ->
+        for_ js $ \j -> do
+          let cidb = fromShowable (unNodeId j)
+          renderEdge nid cidb Nothing normalEdgeAttrs
+      NodeIntersect js ->
+        for_ js $ \j -> do
           let cidb = fromShowable (unNodeId j)
           renderEdge nid cidb Nothing normalEdgeAttrs
       NodeClone j -> do
