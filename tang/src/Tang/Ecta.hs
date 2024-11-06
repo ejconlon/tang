@@ -125,7 +125,7 @@ type NodeMap c = IntLikeMap NodeId (Node c NodeId NodeId)
 type ParentMap = IntLikeMultiMap NodeId NodeId
 
 data NodeGraph f c = NodeGraph
-  { ngNext :: !NodeId
+  { ngNextNid :: !NodeId
   , ngOrigs :: !(OrigMap f)
   , ngNodes :: !(NodeMap c)
   , ngParents :: !ParentMap
@@ -160,7 +160,7 @@ updateParents a si par = siFoldlChildren par si (\pm _ _ n -> ILMM.insert n a pm
 
 -- private
 fresh :: (GraphC f c s m) => m NodeId
-fresh = stateML nodeGraphL (\ng -> let nx = ng.ngNext in pure (nx, ng {ngNext = succ nx}))
+fresh = stateML nodeGraphL (\ng -> let nx = ng.ngNextNid in pure (nx, ng {ngNextNid = succ nx}))
 
 -- private
 node' :: (GraphC f c s m) => NodeId -> Node c NodeId NodeId -> m ()

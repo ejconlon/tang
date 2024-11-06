@@ -16,31 +16,26 @@ deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
 
 deriving stock instance (Show (f (Fix f))) => Show (Fix f)
 
-newtype MetaVar = MetaVar {unMetaVar :: Int}
+newtype SynthId = SynthId {unSynthId :: Int}
   deriving stock (Show)
   deriving newtype (Eq, Ord, Enum, Num)
 
-data ElemF f r
+data Elem f r
   = ElemMeta
   | ElemNode !(f r)
   deriving stock (Functor, Foldable, Traversable)
 
-deriving stock instance (Eq r, Eq (f r)) => Eq (ElemF f r)
+deriving stock instance (Eq r, Eq (f r)) => Eq (Elem f r)
 
-deriving stock instance (Ord r, Ord (f r)) => Ord (ElemF f r)
+deriving stock instance (Ord r, Ord (f r)) => Ord (Elem f r)
 
-deriving stock instance (Show r, Show (f r)) => Show (ElemF f r)
+deriving stock instance (Show r, Show (f r)) => Show (Elem f r)
 
-type Elem f = ElemF f NodeId
-
-elemTraversal :: (Traversable f) => Traversal' (Elem f) NodeId
-elemTraversal = traversed
-
-type Union f = UnionMap NodeId (Elem f)
+type Union f = UnionMap SynthId (Elem f SynthId)
 
 data EnumSt f c = EnumSt
   { bsGraph :: !(NodeGraph f c)
-  , bsMeta :: !MetaVar
+  , bsNextSid :: !SynthId
   , bsUnion :: !(Union f)
   }
 
@@ -56,7 +51,7 @@ instance Exception EnumErr
 
 type EnumM f c = SearchM EnumErr (EnumSt f c)
 
--- enumerate :: (Traversable f) => NodeGraph f Con -> EnumM f c (Fix f)
+-- enumerate :: (Traversable f) => NodeGraph f Con -> EnumM f c NodeId
 -- enumerate (NodeGraph r nm _) = go r
 --  where
 --   go a = case ILM.lookup a nm of

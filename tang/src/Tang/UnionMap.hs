@@ -53,11 +53,15 @@ module Tang.UnionMap
   , mergeMany
   , mergeManyLM
   , mergeManyM
+  , extract
+  , extractLM
+  , extractM
   )
 where
 
+import Control.Monad (unless)
 import Control.Monad.Except (Except, MonadError (..), runExcept)
-import Control.Monad.State.Strict (MonadState, StateT, get, put, runStateT, state)
+import Control.Monad.State.Strict (MonadState, StateT, execState, get, gets, put, runStateT, state)
 import Data.Coerce (Coercible)
 import Data.Foldable (fold, foldl')
 import Data.Foldable qualified as F
@@ -66,7 +70,7 @@ import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Lens', Traversal', equality', over, set, view)
+import Optics (Lens', Traversal', equality', over, set, traverseOf_, view)
 import Prelude hiding (lookup)
 
 -- Private util
@@ -457,3 +461,37 @@ mergeManyM
   -> f k
   -> m (MergeVal e k v r)
 mergeManyM = mergeManyLM equality'
+
+data ExSt k v = ExSt {esSeen :: !(IntLikeSet k), esOut :: !(IntLikeMap k v)}
+
+-- | Return the subgraph accessible from a given key.
+-- NOTE Only valid for canonicalized maps!
+-- TODO thread path compaction through this anyway
+-- TODO report missing keys instead of ignoring
+-- TODO insert canonical keys and return canonical root
+extract :: (Coercible k Int) => Traversal' v k -> k -> UnionMap k v -> IntLikeMap k v
+extract t k0 m = esOut (execState (go k0) (ExSt ILS.empty ILM.empty))
+ where
+  go k = do
+    ExSt seen out <- get
+    unless (ILS.member k seen) $ do
+      case lookup k m of
+        LookupResMissing _ -> pure ()
+        LookupResFound _ v _ -> do
+          put (ExSt (ILS.insert k seen) (ILM.insert k v out))
+          traverseOf_ t go v
+
+extractLM
+  :: (Coercible k Int, MonadState s m)
+  => UnionMapLens s k v
+  -> Traversal' v k
+  -> k
+  -> m (IntLikeMap k v)
+extractLM l t k = fmap (extract t k) (gets (view l))
+
+extractM
+  :: (Coercible k Int, MonadState (UnionMap k v) m)
+  => Traversal' v k
+  -> k
+  -> m (IntLikeMap k v)
+extractM = extractLM equality'
