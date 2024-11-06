@@ -2,10 +2,15 @@
 
 module Tang.Enumerate where
 
+import Control.Applicative (Alternative, empty)
 import Control.Exception (Exception)
-import Optics (Traversal', lens, traversed)
+import Control.Monad.Except (throwError)
+import Control.Monad.State.Strict (state)
+import Data.Foldable (foldl')
+import IntLike.Map qualified as ILM
+import Optics (lens)
 import Tang.Ecta
-import Tang.Search (SearchM)
+import Tang.Search (SearchM, interleaveApplySeq)
 import Tang.UnionMap (UnionMap)
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
@@ -34,13 +39,13 @@ deriving stock instance (Show r, Show (f r)) => Show (Elem f r)
 type Union f = UnionMap SynthId (Elem f SynthId)
 
 data EnumSt f c = EnumSt
-  { bsGraph :: !(NodeGraph f c)
-  , bsNextSid :: !SynthId
-  , bsUnion :: !(Union f)
+  { esGraph :: !(NodeGraph f c)
+  , esNextSid :: !SynthId
+  , esUnion :: !(Union f)
   }
 
 instance HasNodeGraph f c (EnumSt f c) where
-  nodeGraphL = lens bsGraph (\x y -> x {bsGraph = y})
+  nodeGraphL = lens esGraph (\x y -> x {esGraph = y})
 
 data EnumErr
   = EnumErrNodeMissing !NodeId
@@ -51,13 +56,21 @@ instance Exception EnumErr
 
 type EnumM f c = SearchM EnumErr (EnumSt f c)
 
--- enumerate :: (Traversable f) => NodeGraph f Con -> EnumM f c NodeId
--- enumerate (NodeGraph r nm _) = go r
---  where
---   go a = case ILM.lookup a nm of
---     Nothing -> throwError (EnumErrNodeMissing a)
---     Just (NodeInfo _ _ _ b) -> case b of
---       NodeSymbol _ -> todo
---       NodeUnion _ -> todo
---       NodeIntersect _ -> todo
---       NodeClone _ -> todo
+-- private
+foldLastM :: (Foldable f, Alternative m) => (x -> m a) -> f x -> m a
+foldLastM f = foldl' (\ma x -> ma *> f x) empty
+
+enumerate :: NodeGraph f Con -> EnumM f c SynthId
+enumerate (NodeGraph r _ nm _) = goStart r
+ where
+  goStart a = freshId >>= flip goContinue a
+  goContinue b a = do
+    n <- findNode a
+    handleNode b n
+  findNode a = maybe (throwError (EnumErrNodeMissing a)) pure (ILM.lookup a nm)
+  freshId = state (\es -> let sx = es.esNextSid in (sx, es {esNextSid = succ sx}))
+  handleNode b = \case
+    NodeSymbol _ -> error "TODO enumerate symbol"
+    NodeUnion xs -> interleaveApplySeq (goContinue b) xs
+    NodeIntersect xs -> foldLastM (goContinue b) xs
+    NodeClone _ -> error "TODO enumerate clone"

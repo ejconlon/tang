@@ -5,6 +5,7 @@ module Tang.Search
   , searchAll
   , searchN
   , search1
+  , interleaveApplySeq
   , interleaveSeq
   )
 where
@@ -61,10 +62,15 @@ search1 m s =
     [] -> Nothing
     z : _ -> Just z
 
+interleaveApplySeq :: (Monad m) => (x -> SearchT e s m a) -> Seq x -> SearchT e s m a
+interleaveApplySeq f = go
+ where
+  go = \case
+    Empty -> empty
+    m :<| Empty -> f m
+    s ->
+      let (s1, s2) = Seq.splitAt (div (Seq.length s) 2) s
+      in  interleave (go s1) (go s2)
+
 interleaveSeq :: (Monad m) => Seq (SearchT e s m a) -> SearchT e s m a
-interleaveSeq = \case
-  Empty -> empty
-  m :<| Empty -> m
-  s ->
-    let (s1, s2) = Seq.splitAt (div (Seq.length s) 2) s
-    in  interleave (interleaveSeq s1) (interleaveSeq s2)
+interleaveSeq = interleaveApplySeq id
