@@ -1,10 +1,13 @@
 module Tang.Util where
 
+import Control.Applicative (Alternative (..))
 import Control.Monad (foldM)
-import Control.Monad.State.Strict (MonadState, gets, modify')
-import Data.Foldable (toList, traverse_)
-import Data.Sequence (Seq)
+import Control.Monad.State.Strict (MonadState (..), evalState, evalStateT, gets, modify')
+import Control.Monad.Trans (lift)
+import Data.Foldable (foldl', toList, traverse_)
+import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Data.Traversable (for)
 import Optics (Lens', set, view)
 
 data IxPair z = IxPair !Int !z
@@ -51,6 +54,9 @@ seqFromFoldable = Seq.fromList . toList
 foldM' :: (Foldable f, Monad m) => b -> f a -> (b -> a -> m b) -> m b
 foldM' b fa f = foldM f b fa
 
+foldLastM :: (Foldable f, Alternative m) => (x -> m a) -> f x -> m a
+foldLastM f = foldl' (\ma x -> ma *> f x) empty
+
 stateML :: (MonadState s m) => Lens' s a -> (a -> m (b, a)) -> m b
 stateML l f = do
   a <- gets (view l)
@@ -63,3 +69,22 @@ modifyML l f = do
   a <- gets (view l)
   a' <- f a
   modify' (set l a')
+
+mapSeqM :: (Foldable f, Monad m) => (a -> m b) -> f a -> m (Seq b)
+mapSeqM f = go Empty . toList
+ where
+  go !acc = \case
+    [] -> pure acc
+    a : as -> f a >>= \b -> go (acc :|> b) as
+
+zipWithM :: (Traversable f, Monad m) => (a -> b -> m c) -> f a -> f b -> m (f c)
+zipWithM f fa fb =
+  let lmc0 = zipWith f (toList fa) (toList fb)
+  in  flip evalStateT lmc0 $ do
+        for fa $ \_ -> do
+          lmc <- get
+          case lmc of
+            [] -> error "impossible"
+            mc : lmc' -> do
+              put lmc'
+              lift mc
