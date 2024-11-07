@@ -7,6 +7,8 @@ import Control.Monad.Trans (lift)
 import Data.Foldable (foldl', toList, traverse_)
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Traversable (for)
 import Optics (Lens', set, view)
 
@@ -70,12 +72,16 @@ modifyML l f = do
   a' <- f a
   modify' (set l a')
 
-mapSeqM :: (Foldable f, Monad m) => (a -> m b) -> f a -> m (Seq b)
-mapSeqM f = go Empty . toList
+fuseMapM :: (Foldable f, Monad m) => (c -> b -> c) -> c -> (a -> m b) -> f a -> m c
+fuseMapM update acc0 f = foldM go acc0
  where
-  go !acc = \case
-    [] -> pure acc
-    a : as -> f a >>= \b -> go (acc :|> b) as
+  go !acc a = fmap (update acc) (f a)
+
+mapSeqM :: (Foldable f, Monad m) => (a -> m b) -> f a -> m (Seq b)
+mapSeqM = fuseMapM (:|>) Empty
+
+mapSetM :: (Foldable f, Monad m, Ord b) => (a -> m b) -> f a -> m (Set b)
+mapSetM = fuseMapM (flip Set.insert) Set.empty
 
 zipWithM :: (Traversable f, Monad m) => (a -> b -> m c) -> f a -> f b -> m (f c)
 zipWithM f fa fb =

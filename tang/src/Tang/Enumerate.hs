@@ -4,8 +4,11 @@ module Tang.Enumerate where
 
 import Control.Exception (Exception)
 import Control.Monad.Except (ExceptT, throwError)
-import Control.Monad.State.Strict (state, modify', runStateT, StateT)
+import Control.Monad.State.Strict (StateT, modify', runStateT, state)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Except (runExceptT)
 import Data.Sequence (Seq (..))
+import Data.Set (Set)
 import Data.Typeable (Typeable)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
@@ -18,26 +21,15 @@ import Tang.Search (SearchM, interleaveApplySeq)
 import Tang.UnionMap (UnionMap)
 import Tang.UnionMap qualified as UM
 import Tang.Util (foldLastM)
-import Control.Monad.Trans (lift)
-import Control.Monad.Trans.Except (runExceptT)
-
-newtype Fix f = Fix {unFix :: f (Fix f)}
-
-deriving stock instance (Eq (f (Fix f))) => Eq (Fix f)
-
-deriving stock instance (Ord (f (Fix f))) => Ord (Fix f)
-
-deriving stock instance (Show (f (Fix f))) => Show (Fix f)
 
 newtype SynthId = SynthId {unSynthId :: Int}
   deriving stock (Show)
   deriving newtype (Eq, Ord, Enum, Num)
 
 data NodeElem f c = NodeElem
-  { neCons :: !(Seq c)
-  , neLabelIx :: !(IntLikeMap Label ChildIx)
-  , neStruct :: !(f ChildIx)
-  , neChildren :: !(Seq SynthId)
+  { neChildren :: !(Seq SynthId)
+  , neStructure :: !(f ChildIx)
+  , neConstraints :: !(Set c)
   }
 
 deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (NodeElem f c)
@@ -65,35 +57,27 @@ deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (ElemInfo f c)
 
 deriving stock instance (Show c, Show (f ChildIx)) => Show (ElemInfo f c)
 
-newtype EqCon = EqCon {unEqCon :: IntLikeSet SynthId}
+newtype SynEqCon = SynEqCon {unSynEqCon :: IntLikeSet SynthId}
   deriving stock (Eq, Ord, Show)
 
--- data AlignErr e
---   = AlignErrEmbed !e
---   | AlignErrArity !Int
---   deriving stock (Eq, Ord, Show)
---
--- instance (Show e, Typeable e) => Exception (AlignErr e)
+type AlignT e f c m = StateT (Seq SynEqCon) (ExceptT e m)
 
-type AlignT e f c m = StateT (Seq EqCon) (ExceptT e m)
-
-runAlignT :: AlignT e f c m a -> Seq EqCon -> m (Either e (a, Seq EqCon))
+runAlignT :: AlignT e f c m a -> Seq SynEqCon -> m (Either e (a, Seq SynEqCon))
 runAlignT m = runExceptT . runStateT m
 
 alignNodeElem :: (Alignable e f, Monad m) => NodeElem f c -> NodeElem f c -> AlignT e f c m (NodeElem f c)
-alignNodeElem = undefined
+alignNodeElem = error "TODO"
 
 alignElemInfo :: (Alignable e f, Monad m) => ElemInfo f c -> ElemInfo f c -> AlignT e f c m (ElemInfo f c)
-alignElemInfo = goStart where
+alignElemInfo = goStart
+ where
   goStart (ElemInfo n1 e1) (ElemInfo n2 e2) =
     fmap (ElemInfo (ILS.union n1 n2)) (goAlign e1 e2)
   goAlign e1 = \case
-      ElemMeta -> pure e1
-      e2@(ElemNode n2) -> case e1 of
-        ElemMeta -> pure e2
-        ElemNode n1 -> fmap ElemNode (alignNodeElem n1 n2)
-
-  -- modify' (:|> EqCon (ILS.fromList [a b]))
+    ElemMeta -> pure e1
+    e2@(ElemNode n2) -> case e1 of
+      ElemMeta -> pure e2
+      ElemNode n1 -> fmap ElemNode (alignNodeElem n1 n2)
 
 data Union f c = Union
   { unionNextSid :: !SynthId
@@ -131,10 +115,10 @@ instance (Show e, Typeable e) => Exception (EnumErr e)
 
 type EnumM e f c = SearchM (EnumErr e) (EnumSt f c)
 
-enumerate :: (Alignable e f) => NodeGraph f Con -> EnumM e f c SynthId
-enumerate (NodeGraph r om nm _) = goStart r
+enumerate :: (Alignable e f) => NodeGraph f IxEqCon -> EnumM e f c SynthId
+enumerate (NodeGraph r nm _) = goStart r
  where
-  goStart = undefined
+  goStart = error "TODO"
 
 -- goStart a = freshId >>= flip goContinue a
 -- goContinue b a = do

@@ -5,6 +5,7 @@ import Control.Monad (void)
 import Control.Monad.Except (ExceptT, MonadError (..), runExcept, runExceptT)
 import Control.Monad.Trans (lift)
 import Data.Foldable (toList)
+import Data.Functor.Classes (Eq1 (..))
 import Data.Typeable (Typeable)
 import Tang.Util (zipWithM)
 
@@ -67,3 +68,15 @@ newtype ViaEq f a = ViaEq {unViaEq :: f a}
 
 instance (Traversable f, Eq (f ())) => Alignable EqAlignErr (ViaEq f) where
   alignWithM f (ViaEq fa) (ViaEq fb) = fmap ViaEq (eqAlignWithM f fa fb)
+
+eq1AlignWithM :: (Traversable f, Eq1 f, Monad m) => (a -> b -> m c) -> f a -> f b -> ExceptT EqAlignErr m (f c)
+eq1AlignWithM f fa fb =
+  if liftEq (\_ _ -> True) fa fb
+    then lift (zipWithM f fa fb)
+    else throwError EqAlignErr
+
+newtype ViaEq1 f a = ViaEq1 {unViaEq1 :: f a}
+  deriving stock (Functor, Foldable, Traversable)
+
+instance (Traversable f, Eq1 f) => Alignable EqAlignErr (ViaEq1 f) where
+  alignWithM f (ViaEq1 fa) (ViaEq1 fb) = fmap ViaEq1 (eq1AlignWithM f fa fb)

@@ -5,8 +5,8 @@ module Tang.Test.Ring where
 import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
-import Tang.Dot (renderCon, renderNodeGraph)
-import Tang.Ecta (Con, NodeGraph, NodeId)
+import Tang.Dot (renderEqCon, renderNodeGraph)
+import Tang.Ecta (NodeGraph, NodeId, SegEqCon)
 import Tang.Render (RenderM)
 
 data RingF r
@@ -36,5 +36,5 @@ renderRing = \case
   RingMul _ _ -> "*"
   RingVar v -> TLB.fromString v
 
-renderRingGraph :: NodeId -> NodeGraph RingF Con -> RenderM ()
-renderRingGraph = renderNodeGraph renderRing renderCon
+renderRingGraph :: NodeId -> NodeGraph RingF SegEqCon -> RenderM ()
+renderRingGraph = renderNodeGraph renderRing renderEqCon

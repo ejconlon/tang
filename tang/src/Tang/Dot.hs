@@ -8,23 +8,23 @@ import Data.List (intersperse)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
-import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
 import IntLike.Map qualified as ILM
+import IntLike.Set qualified as ILS
 import Tang.Ecta
   ( ChildIx (..)
-  , Con (..)
-  , Edge (..)
+  , EqCon (..)
   , Label (..)
   , Node (..)
   , NodeGraph (..)
   , NodeId (..)
-  , Path
   , Seg (..)
-  , SymbolInfo (..)
+  , SegEqCon
+  , SegPath
   , SymbolNode (..)
   )
 import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders)
@@ -85,41 +85,38 @@ renderSeg = \case
   SegLabel (Label x) -> TLB.fromText x
   SegIndex (ChildIx x) -> TLB.fromString (show x)
 
-renderPath :: Path -> Builder
+renderPath :: SegPath -> Builder
 renderPath = mconcat . intersperse (TLB.singleton '.') . fmap renderSeg . toList
 
-renderCon :: Con -> Builder
-renderCon = \case
-  ConEq p1 p2 -> renderPath p1 <> " = " <> renderPath p2
+renderEqCon :: SegEqCon -> Builder
+renderEqCon = \case
+  EqCon p1 p2 -> renderPath p1 <> " = " <> renderPath p2
 
-renderCons :: (c -> Builder) -> Seq c -> Builder
+renderCons :: (c -> Builder) -> Set c -> Builder
 renderCons f = mconcat . intersperse (TLB.singleton '\n') . fmap f . toList
 
-renderNodeGraph :: (f (Edge NodeId) -> Builder) -> (c -> Builder) -> NodeId -> NodeGraph f c -> RenderM ()
-renderNodeGraph g f root (NodeGraph _ om nm _) = do
+renderNodeGraph :: (f ChildIx -> Builder) -> (c -> Builder) -> NodeId -> NodeGraph f c -> RenderM ()
+renderNodeGraph g f root (NodeGraph _ nm _) = do
   renderBuilder "digraph g {\n"
   -- Emit nodes
   for_ (ILM.toList nm) $ \(i, n) -> do
     let nid = fromShowable (unNodeId i)
-        mx = case n of
-          NodeSymbol (SymbolNode cs _) ->
-            case ILM.lookup i om of
-              Nothing -> Nothing
-              Just fe -> Just (g fe, Just (renderCons f cs), symbolNodeAttrs)
+        (nlab, mxlab, attrs) = case n of
+          NodeSymbol (SymbolNode _ _ _ fe cs) ->
+            (g fe, Just (renderCons f cs), symbolNodeAttrs)
           NodeUnion _ -> do
-            Just ("", Nothing, unionNodeAttrs)
+            ("", Nothing, unionNodeAttrs)
           NodeIntersect _ -> do
-            Just ("", Nothing, intersectNodeAttrs)
+            ("", Nothing, intersectNodeAttrs)
           NodeClone _ -> do
-            Just ("", Nothing, cloneNodeAttrs)
-    for_ mx $ \(nlab, mxlab, attrs) -> do
-      let attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)
-      renderNode nid nlab mxlab attrs'
+            ("", Nothing, cloneNodeAttrs)
+        attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)
+    renderNode nid nlab mxlab attrs'
   -- Emit edges
   for_ (ILM.toList nm) $ \(i, n) -> do
     let nid = fromShowable (unNodeId i)
     case n of
-      NodeSymbol (SymbolNode _ (SymbolInfo _ ixLab ixVal)) -> do
+      NodeSymbol (SymbolNode _ ixLab ixVal _ _) -> do
         for_ (fmap ChildIx [0 .. Seq.length ixVal - 1]) $ \ix -> do
           let mlab = fmap (TLB.fromText . unLabel) (ILM.lookup ix ixLab)
           case Seq.lookup (unChildIx ix) ixVal of
@@ -128,11 +125,11 @@ renderNodeGraph g f root (NodeGraph _ om nm _) = do
               let cidb = fromShowable (unNodeId cid)
               renderEdge nid cidb mlab normalEdgeAttrs
       NodeUnion js ->
-        for_ js $ \j -> do
+        for_ (ILS.toList js) $ \j -> do
           let cidb = fromShowable (unNodeId j)
           renderEdge nid cidb Nothing normalEdgeAttrs
       NodeIntersect js ->
-        for_ js $ \j -> do
+        for_ (ILS.toList js) $ \j -> do
           let cidb = fromShowable (unNodeId j)
           renderEdge nid cidb Nothing normalEdgeAttrs
       NodeClone j -> do
