@@ -2,6 +2,8 @@
 
 module Tang.Ecta where
 
+import Control.Exception (Exception)
+import Control.Monad.Except (Except, throwError)
 import Control.Monad.State.Strict (MonadState, State, runState, state)
 import Data.Foldable (foldl', traverse_)
 import Data.Functor.Foldable (Base, Recursive (..))
@@ -19,7 +21,7 @@ import IntLike.MultiMap (IntLikeMultiMap)
 import IntLike.MultiMap qualified as ILMM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Lens', equality')
+import Optics (Lens', Traversal, equality', traversalVL, traverseOf)
 import Tang.Util (mapSetM, modifyML, stateML)
 
 newtype Label = Label {unLabel :: Text}
@@ -47,6 +49,9 @@ data EqCon p = EqCon !p !p
 type SegEqCon = EqCon SegPath
 
 type IxEqCon = EqCon IxPath
+
+eqConT :: Traversal SegEqCon IxEqCon Seg ChildIx
+eqConT = traversalVL (\g (EqCon p q) -> liftA2 EqCon (traverse g p) (traverse g q))
 
 data Edge = Edge !(Maybe Label) !NodeId
   deriving stock (Eq, Ord, Show)
@@ -98,6 +103,22 @@ snFoldlChildren b0 (SymbolNode _ ixLab ixVal _ _) f = snd (foldl' go (0, b0) ixV
  where
   go (ix, b) a = (succ ix, f b ix (ILM.lookup ix ixLab) a)
 
+newtype RewriteErr = RewriteErr Label
+  deriving stock (Eq, Ord, Show)
+
+instance Exception RewriteErr
+
+snRewriteSeg :: (Ord d) => Traversal c d Seg ChildIx -> SymbolNode f c -> Except RewriteErr (SymbolNode f d)
+snRewriteSeg t = goStart
+ where
+  goStart (SymbolNode labIx ixLab children struct cons) = do
+    cons' <- mapSetM (goCon labIx) cons
+    pure (SymbolNode labIx ixLab children struct cons')
+  goCon = traverseOf t . goSeg
+  goSeg labIx = \case
+    SegLabel lab -> maybe (throwError (RewriteErr lab)) pure (Map.lookup lab labIx)
+    SegIndex ix -> pure ix
+
 data Node f c
   = NodeSymbol !(SymbolNode f c)
   | NodeUnion !(IntLikeSet NodeId)
@@ -110,14 +131,14 @@ deriving stock instance (Ord c, Ord (f ChildIx)) => Ord (Node f c)
 
 deriving stock instance (Show c, Show (f ChildIx)) => Show (Node f c)
 
-nodeMapConM_ :: (Monad m) => (c -> m ()) -> Node f c -> m ()
-nodeMapConM_ f = \case
-  NodeSymbol sn -> snMapConM_ f sn
+nodeMapSymM_ :: (Monad m) => (SymbolNode f c -> m ()) -> Node f c -> m ()
+nodeMapSymM_ f = \case
+  NodeSymbol sn -> f sn
   _ -> pure ()
 
-nodeMapConM :: (Monad m, Ord d) => (c -> m d) -> Node f c -> m (Node f d)
-nodeMapConM f = \case
-  NodeSymbol sn -> fmap NodeSymbol (snMapConM f sn)
+nodeMapSymM :: (Monad m) => (SymbolNode f c -> m (SymbolNode g d)) -> Node f c -> m (Node g d)
+nodeMapSymM f = \case
+  NodeSymbol sn -> fmap NodeSymbol (f sn)
   NodeUnion xs -> pure (NodeUnion xs)
   NodeIntersect xs -> pure (NodeIntersect xs)
   NodeClone n -> pure (NodeClone n)
@@ -139,11 +160,14 @@ deriving stock instance (Show c, Show (f ChildIx)) => Show (NodeGraph f c)
 emptyNodeGraph :: NodeGraph f c
 emptyNodeGraph = NodeGraph 0 ILM.empty ILM.empty
 
-ngMapConM_ :: (Monad m) => (c -> m ()) -> NodeGraph f c -> m ()
-ngMapConM_ f = traverse_ (nodeMapConM_ f) . ngNodes
+ngMapNodeM_ :: (Monad m) => (Node f c -> m ()) -> NodeGraph f c -> m ()
+ngMapNodeM_ f = traverse_ f . ngNodes
 
-ngMapConM :: (Monad m, Ord d) => (c -> m d) -> NodeGraph f c -> m (NodeGraph f d)
-ngMapConM f (NodeGraph x y z) = fmap (\y' -> NodeGraph x y' z) (traverse (nodeMapConM f) y)
+ngMapNodeM :: (Monad m) => (Node f c -> m (Node g d)) -> NodeGraph f c -> m (NodeGraph g d)
+ngMapNodeM f (NodeGraph x y z) = fmap (\y' -> NodeGraph x y' z) (traverse f y)
+
+ngRewriteSeg :: (Ord d) => Traversal c d Seg ChildIx -> NodeGraph f c -> Except RewriteErr (NodeGraph f d)
+ngRewriteSeg = ngMapNodeM . nodeMapSymM . snRewriteSeg
 
 class HasNodeGraph f c s | s -> f c where
   nodeGraphL :: Lens' s (NodeGraph f c)

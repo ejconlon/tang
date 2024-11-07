@@ -2,7 +2,7 @@ module Tang.Util where
 
 import Control.Applicative (Alternative (..))
 import Control.Monad (foldM)
-import Control.Monad.State.Strict (MonadState (..), evalState, evalStateT, gets, modify')
+import Control.Monad.State.Strict (MonadState (..), evalStateT, gets, modify')
 import Control.Monad.Trans (lift)
 import Data.Foldable (foldl', toList, traverse_)
 import Data.Sequence (Seq (..))
@@ -75,7 +75,7 @@ modifyML l f = do
 fuseMapM :: (Foldable f, Monad m) => (c -> b -> c) -> c -> (a -> m b) -> f a -> m c
 fuseMapM update acc0 f = foldM go acc0
  where
-  go !acc a = fmap (update acc) (f a)
+  go !acc = fmap (update acc) . f
 
 mapSeqM :: (Foldable f, Monad m) => (a -> m b) -> f a -> m (Seq b)
 mapSeqM = fuseMapM (:|>) Empty
