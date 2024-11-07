@@ -140,10 +140,10 @@ emptyNodeGraph :: NodeGraph f c
 emptyNodeGraph = NodeGraph 0 ILM.empty ILM.empty
 
 ngMapConM_ :: (Monad m) => (c -> m ()) -> NodeGraph f c -> m ()
-ngMapConM_ f = error "TODO"
+ngMapConM_ f = traverse_ (nodeMapConM_ f) . ngNodes
 
-ngMapConM :: (Monad m, Ord d) => (c -> m d) -> NodeGraph f c -> m (Node f d)
-ngMapConM f = error "TODO"
+ngMapConM :: (Monad m, Ord d) => (c -> m d) -> NodeGraph f c -> m (NodeGraph f d)
+ngMapConM f (NodeGraph x y z) = fmap (\y' -> NodeGraph x y' z) (traverse (nodeMapConM f) y)
 
 class HasNodeGraph f c s | s -> f c where
   nodeGraphL :: Lens' s (NodeGraph f c)
