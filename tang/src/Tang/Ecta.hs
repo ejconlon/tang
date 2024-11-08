@@ -10,7 +10,6 @@ import Data.Functor.Foldable (Base, Recursive (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
-import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (IsString)
@@ -61,36 +60,33 @@ type LabelIxMap = Map Label ChildIx
 type IxLabelMap = IntLikeMap ChildIx Label
 
 data SymbolNode f c = SymbolNode
-  { snLabelIx :: !LabelIxMap
+  { snArity :: !Int
+  , snLabelIx :: !LabelIxMap
   , snIxLabel :: !IxLabelMap
-  , snChildren :: !(Seq NodeId)
-  , snStructure :: !(f ChildIx)
+  , snStructure :: !(f NodeId)
   , snConstraints :: !(Set c)
   }
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (SymbolNode f c)
+deriving stock instance (Eq c, Eq (f NodeId)) => Eq (SymbolNode f c)
 
-deriving stock instance (Ord c, Ord (f ChildIx)) => Ord (SymbolNode f c)
+deriving stock instance (Ord c, Ord (f NodeId)) => Ord (SymbolNode f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (SymbolNode f c)
+deriving stock instance (Show c, Show (f NodeId)) => Show (SymbolNode f c)
 
 -- private
-data X = X !ChildIx !LabelIxMap !IxLabelMap !(Seq NodeId)
+data X = X !ChildIx !LabelIxMap !IxLabelMap
 
 mkSymbolNode :: (Traversable f) => f Edge -> Set c -> SymbolNode f c
 mkSymbolNode fe cs = goStart
  where
   goStart =
-    let x0 = X 0 Map.empty ILM.empty Empty
-        (fi, X _ labIx ixLab ixVal) = runState (traverse goChild fe) x0
-    in  SymbolNode labIx ixLab ixVal fi cs
-  goChild (Edge ml a) = state $ \(X ix labIx ixLab ixVal) ->
+    let x0 = X 0 Map.empty ILM.empty
+        (fn, X (ChildIx ar) labIx ixLab) = runState (traverse goChild fe) x0
+    in  SymbolNode ar labIx ixLab fn cs
+  goChild (Edge ml a) = state $ \(X ix labIx ixLab) ->
     let (labIx', ixLab') = maybe (labIx, ixLab) (\l -> (Map.insert l ix labIx, ILM.insert ix l ixLab)) ml
-        x = X (succ ix) labIx' ixLab' (ixVal :|> a)
-    in  (ix, x)
-
-snArity :: SymbolNode f c -> Int
-snArity = Seq.length . snChildren
+        x = X (succ ix) labIx' ixLab'
+    in  (a, x)
 
 snMapConM :: (Monad m, Ord d) => (c -> m d) -> SymbolNode f c -> m (SymbolNode f d)
 snMapConM f (SymbolNode labIx ixLab ixNode struct cs) = fmap (SymbolNode labIx ixLab ixNode struct) (mapSetM f cs)
@@ -98,8 +94,8 @@ snMapConM f (SymbolNode labIx ixLab ixNode struct cs) = fmap (SymbolNode labIx i
 snMapConM_ :: (Monad m) => (c -> m ()) -> SymbolNode f c -> m ()
 snMapConM_ f sn = traverse_ f (snConstraints sn)
 
-snFoldlChildren :: b -> SymbolNode f c -> (b -> ChildIx -> Maybe Label -> NodeId -> b) -> b
-snFoldlChildren b0 (SymbolNode _ ixLab ixVal _ _) f = snd (foldl' go (0, b0) ixVal)
+snFoldlChildren :: (Foldable f) => b -> SymbolNode f c -> (b -> ChildIx -> Maybe Label -> NodeId -> b) -> b
+snFoldlChildren b0 (SymbolNode _ _ ixLab fn _) f = snd (foldl' go (0, b0) fn)
  where
   go (ix, b) a = (succ ix, f b ix (ILM.lookup ix ixLab) a)
 
@@ -108,12 +104,13 @@ newtype RewriteErr = RewriteErr Label
 
 instance Exception RewriteErr
 
+-- TODO report path to label
 snRewriteSeg :: (Ord d) => Traversal c d Seg ChildIx -> SymbolNode f c -> Except RewriteErr (SymbolNode f d)
 snRewriteSeg t = goStart
  where
-  goStart (SymbolNode labIx ixLab children struct cons) = do
+  goStart (SymbolNode ar labIx ixLab struct cons) = do
     cons' <- mapSetM (goCon labIx) cons
-    pure (SymbolNode labIx ixLab children struct cons')
+    pure (SymbolNode ar labIx ixLab struct cons')
   goCon = traverseOf t . goSeg
   goSeg labIx = \case
     SegLabel lab -> maybe (throwError (RewriteErr lab)) pure (Map.lookup lab labIx)
@@ -125,11 +122,11 @@ data Node f c
   | NodeIntersect !(IntLikeSet NodeId)
   | NodeClone !NodeId
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (Node f c)
+deriving stock instance (Eq c, Eq (f NodeId)) => Eq (Node f c)
 
-deriving stock instance (Ord c, Ord (f ChildIx)) => Ord (Node f c)
+deriving stock instance (Ord c, Ord (f NodeId)) => Ord (Node f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (Node f c)
+deriving stock instance (Show c, Show (f NodeId)) => Show (Node f c)
 
 nodeMapSymM_ :: (Monad m) => (SymbolNode f c -> m ()) -> Node f c -> m ()
 nodeMapSymM_ f = \case
@@ -153,9 +150,9 @@ data NodeGraph f c = NodeGraph
   , ngParents :: !ParentMap
   }
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (NodeGraph f c)
+deriving stock instance (Eq c, Eq (f NodeId)) => Eq (NodeGraph f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (NodeGraph f c)
+deriving stock instance (Show c, Show (f NodeId)) => Show (NodeGraph f c)
 
 emptyNodeGraph :: NodeGraph f c
 emptyNodeGraph = NodeGraph 0 ILM.empty ILM.empty
@@ -166,6 +163,7 @@ ngMapNodeM_ f = traverse_ f . ngNodes
 ngMapNodeM :: (Monad m) => (Node f c -> m (Node g d)) -> NodeGraph f c -> m (NodeGraph g d)
 ngMapNodeM f (NodeGraph x y z) = fmap (\y' -> NodeGraph x y' z) (traverse f y)
 
+-- TODO report failing node id
 ngRewriteSeg :: (Ord d) => Traversal c d Seg ChildIx -> NodeGraph f c -> Except RewriteErr (NodeGraph f d)
 ngRewriteSeg = ngMapNodeM . nodeMapSymM . snRewriteSeg
 
@@ -186,7 +184,7 @@ buildGraph = flip runGraphM emptyNodeGraph
 type GraphC f c s m = (HasNodeGraph f c s, MonadState s m)
 
 -- private
-updateParents :: NodeId -> SymbolNode f c -> ParentMap -> ParentMap
+updateParents :: (Foldable f) => NodeId -> SymbolNode f c -> ParentMap -> ParentMap
 updateParents a si par = snFoldlChildren par si (\pm _ _ n -> ILMM.insert n a pm)
 
 -- private

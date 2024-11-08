@@ -8,7 +8,6 @@ import Data.List (intersperse)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
-import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
@@ -28,6 +27,7 @@ import Tang.Ecta
   , SymbolNode (..)
   )
 import Tang.Render (RenderM, fromShowable, renderBuilder, renderBuilders)
+import Tang.Util (forWithIndex_)
 
 type Attrs = Map Text [Text]
 
@@ -95,7 +95,7 @@ renderEqCon = \case
 renderCons :: (c -> Builder) -> Set c -> Builder
 renderCons f = mconcat . intersperse (TLB.singleton '\n') . fmap f . toList
 
-renderNodeGraph :: (f ChildIx -> Builder) -> (c -> Builder) -> NodeId -> NodeGraph f c -> RenderM ()
+renderNodeGraph :: (Foldable f) => (f NodeId -> Builder) -> (c -> Builder) -> NodeId -> NodeGraph f c -> RenderM ()
 renderNodeGraph g f root (NodeGraph _ nm _) = do
   renderBuilder "digraph g {\n"
   -- Emit nodes
@@ -116,14 +116,11 @@ renderNodeGraph g f root (NodeGraph _ nm _) = do
   for_ (ILM.toList nm) $ \(i, n) -> do
     let nid = fromShowable (unNodeId i)
     case n of
-      NodeSymbol (SymbolNode _ ixLab ixVal _ _) -> do
-        for_ (fmap ChildIx [0 .. Seq.length ixVal - 1]) $ \ix -> do
-          let mlab = fmap (TLB.fromText . unLabel) (ILM.lookup ix ixLab)
-          case Seq.lookup (unChildIx ix) ixVal of
-            Nothing -> pure ()
-            Just cid -> do
-              let cidb = fromShowable (unNodeId cid)
-              renderEdge nid cidb mlab normalEdgeAttrs
+      NodeSymbol (SymbolNode _ _ ixLab fn _) -> do
+        forWithIndex_ fn $ \ix cid -> do
+          let mlab = fmap (TLB.fromText . unLabel) (ILM.lookup (ChildIx ix) ixLab)
+              cidb = fromShowable (unNodeId cid)
+          renderEdge nid cidb mlab normalEdgeAttrs
       NodeUnion js ->
         for_ (ILS.toList js) $ \j -> do
           let cidb = fromShowable (unNodeId j)

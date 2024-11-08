@@ -2,8 +2,9 @@
 
 module Tang.Enumerate where
 
+import Control.Applicative (empty)
 import Control.Exception (Exception)
-import Control.Monad.Except (ExceptT, throwError)
+import Control.Monad.Except (ExceptT, MonadError (..), runExcept, throwError)
 import Control.Monad.State.Strict (StateT, modify', runStateT, state)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Except (runExceptT)
@@ -27,48 +28,61 @@ newtype SynthId = SynthId {unSynthId :: Int}
   deriving newtype (Eq, Ord, Enum, Num)
 
 data NodeElem f c = NodeElem
-  { neChildren :: !(Seq SynthId)
-  , neStructure :: !(f ChildIx)
+  { neArity :: !Int
+  , neStructure :: !(f SynthId)
   , neConstraints :: !(Set c)
   }
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (NodeElem f c)
+deriving stock instance (Eq c, Eq (f SynthId)) => Eq (NodeElem f c)
 
-deriving stock instance (Ord c, Ord (f ChildIx)) => Ord (NodeElem f c)
+deriving stock instance (Ord c, Ord (f SynthId)) => Ord (NodeElem f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (NodeElem f c)
+deriving stock instance (Show c, Show (f SynthId)) => Show (NodeElem f c)
 
 data Elem f c
   = ElemMeta
   | ElemNode !(NodeElem f c)
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (Elem f c)
+deriving stock instance (Eq c, Eq (f SynthId)) => Eq (Elem f c)
 
-deriving stock instance (Ord c, Ord (f ChildIx)) => Ord (Elem f c)
+deriving stock instance (Ord c, Ord (f SynthId)) => Ord (Elem f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (Elem f c)
+deriving stock instance (Show c, Show (f SynthId)) => Show (Elem f c)
 
 data ElemInfo f c = ElemInfo
   { eiNodes :: !(IntLikeSet NodeId)
   , eiElem :: !(Elem f c)
   }
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (ElemInfo f c)
+deriving stock instance (Eq c, Eq (f SynthId)) => Eq (ElemInfo f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (ElemInfo f c)
+deriving stock instance (Show c, Show (f SynthId)) => Show (ElemInfo f c)
 
 newtype SynEqCon = SynEqCon {unSynEqCon :: IntLikeSet SynthId}
   deriving stock (Eq, Ord, Show)
 
-type AlignT e f c m = StateT (Seq SynEqCon) (ExceptT e m)
+data AlignErr e
+  = AlignErrEmbed !e
+  | AlignErrArity !Int !Int
+  deriving stock (Eq, Ord, Show)
 
-runAlignT :: AlignT e f c m a -> Seq SynEqCon -> m (Either e (a, Seq SynEqCon))
+instance (Show e, Typeable e) => Exception (AlignErr e)
+
+type AlignT e f c m = StateT (Seq SynEqCon) (ExceptT (AlignErr e) m)
+
+runAlignT :: AlignT e f c m a -> Seq SynEqCon -> m (Either (AlignErr e) (a, Seq SynEqCon))
 runAlignT m = runExceptT . runStateT m
 
-alignNodeElem :: (Alignable e f, Monad m) => NodeElem f c -> NodeElem f c -> AlignT e f c m (NodeElem f c)
-alignNodeElem = error "TODO"
+alignNodeElem :: (Alignable e f, Ord c, Monad m) => NodeElem f c -> NodeElem f c -> AlignT e f c m (NodeElem f c)
+alignNodeElem (NodeElem a1 f1 c1) (NodeElem a2 f2 c2) =
+  if a1 == a2
+    then do
+      let tellEq s1 s2 = s1 <$ modify' (:|> SynEqCon (ILS.fromList [s1, s2]))
+      ef <- runExceptT (alignWithM tellEq f1 f2)
+      either (throwError . AlignErrEmbed) (\f3 -> pure (NodeElem a1 f3 (c1 <> c2))) ef
+    else throwError (AlignErrArity a1 a2)
 
-alignElemInfo :: (Alignable e f, Monad m) => ElemInfo f c -> ElemInfo f c -> AlignT e f c m (ElemInfo f c)
+alignElemInfo :: (Alignable e f, Ord c, Monad m) => ElemInfo f c -> ElemInfo f c -> AlignT e f c m (ElemInfo f c)
 alignElemInfo = goStart
  where
   goStart (ElemInfo n1 e1) (ElemInfo n2 e2) =
@@ -85,9 +99,9 @@ data Union f c = Union
   , unionElems :: !(UnionMap SynthId (ElemInfo f c))
   }
 
-deriving stock instance (Eq c, Eq (f ChildIx)) => Eq (Union f c)
+deriving stock instance (Eq c, Eq (f SynthId)) => Eq (Union f c)
 
-deriving stock instance (Show c, Show (f ChildIx)) => Show (Union f c)
+deriving stock instance (Show c, Show (f SynthId)) => Show (Union f c)
 
 class HasUnion f c s | s -> f where
   unionL :: Lens' s (Union f c)
@@ -108,24 +122,33 @@ instance HasUnion f c (EnumSt f c) where
 
 data EnumErr e
   = EnumErrNodeMissing !NodeId
-  | EnumErrEmbed !NodeId !e
+  | EnumErrAlign !NodeId !(AlignErr e)
   deriving stock (Eq, Ord, Show)
 
 instance (Show e, Typeable e) => Exception (EnumErr e)
+
+eeNotable :: EnumErr e -> Bool
+eeNotable = \case
+  EnumErrNodeMissing _ -> True
+  EnumErrAlign _ _ -> False
+
+-- Distinguish between "true errors" and those that should just terminate
+-- a particular branch of enumeration quietly
+guardNotable :: EnumM e f c a -> EnumM e f c a
+guardNotable = flip catchError (\e -> if eeNotable e then throwError e else empty)
 
 type EnumM e f c = SearchM (EnumErr e) (EnumSt f c)
 
 enumerate :: (Alignable e f) => NodeGraph f IxEqCon -> EnumM e f c SynthId
 enumerate (NodeGraph r nm _) = goStart r
  where
-  goStart = error "TODO"
+  goStart = undefined
 
 -- goStart a = freshId >>= flip goContinue a
 -- goContinue b a = do
 --   n <- findNode a
 --   handleNode a b n
 -- findNode a = maybe (throwError (EnumErrNodeMissing a)) pure (ILM.lookup a nm)
--- findOrig a = maybe (throwError (EnumErrNodeMissing a)) pure (ILM.lookup a om)
 -- freshId = state $ \es ->
 --   let sx = es.esNextSid
 --       union' =

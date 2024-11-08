@@ -47,7 +47,7 @@ traverseWithIndex_ f s =
 forWithIndex :: (Traversable f, Applicative m) => f a -> (Int -> a -> m b) -> m (f b)
 forWithIndex = flip traverseWithIndex
 
-forWithIndex_ :: (Traversable f, Applicative m) => f a -> (Int -> a -> m ()) -> m ()
+forWithIndex_ :: (Foldable f, Applicative m) => f a -> (Int -> a -> m ()) -> m ()
 forWithIndex_ = flip traverseWithIndex_
 
 seqFromFoldable :: (Foldable f) => f a -> Seq a
