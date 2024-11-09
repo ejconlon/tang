@@ -13,7 +13,7 @@ import Data.Sequence qualified as Seq
 import PropUnit (TestTree, testUnit, (===))
 import Tang.Search (SearchM, interleaveSeq, searchN)
 
-type M = SearchM String Int
+type M = SearchM String () Int
 
 type Res a = (Either String a, Int)
 
@@ -27,7 +27,7 @@ inc :: M ()
 inc = modify' (+ 1)
 
 run :: M a -> [(Either String a, Int)]
-run m = runIdentity (searchN 100 m 0)
+run m = runIdentity (searchN 100 m () 0)
 
 testSearch :: TestTree
 testSearch = testUnit "Search" $ do

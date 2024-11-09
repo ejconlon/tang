@@ -188,26 +188,26 @@ updateParents :: (Foldable f) => NodeId -> SymbolNode f c -> ParentMap -> Parent
 updateParents a si par = snFoldlChildren par si (\pm _ _ n -> ILMM.insert n a pm)
 
 -- private
-fresh :: (GraphC f c s m) => m NodeId
-fresh = stateML nodeGraphL (\ng -> let nx = ng.ngNextNid in pure (nx, ng {ngNextNid = succ nx}))
+mkFreshNodeId :: (GraphC f c s m) => m NodeId
+mkFreshNodeId = stateML nodeGraphL (\ng -> let nx = ng.ngNextNid in pure (nx, ng {ngNextNid = succ nx}))
 
 -- private
-node' :: (GraphC f c s m) => NodeId -> Node f c -> m ()
-node' a b = do
+addNode' :: (GraphC f c s m) => NodeId -> Node f c -> m ()
+addNode' a b = do
   modifyML nodeGraphL $ \(NodeGraph nx nm par) ->
     let nm' = ILM.insert a b nm
     in  pure (NodeGraph nx nm' par)
 
-node :: (GraphC f c s m) => Node f c -> m NodeId
-node b = do
-  a <- fresh
-  node' a b
+addNode :: (GraphC f c s m) => Node f c -> m NodeId
+addNode b = do
+  a <- mkFreshNodeId
+  addNode' a b
   pure a
 
 addRecursive :: (GraphC f c s m) => (m NodeId -> m a) -> m a
 addRecursive f = do
-  a <- fresh
-  f (fresh >>= \c -> c <$ node' c (NodeClone a))
+  a <- mkFreshNodeId
+  f (mkFreshNodeId >>= \c -> c <$ addNode' c (NodeClone a))
 
 addSymbol :: (Traversable f, GraphC f c s m) => f Edge -> Set c -> m NodeId
 addSymbol fe cs =
@@ -221,13 +221,13 @@ addUnion :: (GraphC f c s m) => NodeId -> NodeId -> m NodeId
 addUnion i j = addUnionAll (ILS.fromList [i, j])
 
 addUnionAll :: (GraphC f c s m) => IntLikeSet NodeId -> m NodeId
-addUnionAll = node . NodeUnion
+addUnionAll = addNode . NodeUnion
 
 addIntersect :: (GraphC f c s m) => NodeId -> NodeId -> m NodeId
 addIntersect i j = addIntersectAll (ILS.fromList [i, j])
 
 addIntersectAll :: (GraphC f c s m) => IntLikeSet NodeId -> m NodeId
-addIntersectAll = node . NodeIntersect
+addIntersectAll = addNode . NodeIntersect
 
 addTree :: (Recursive t, Base t ~ f, Traversable f, GraphC f c s m) => t -> m NodeId
 addTree t = do

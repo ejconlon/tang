@@ -19,50 +19,51 @@ import Control.Monad.State.Strict (MonadState, StateT (..))
 import Data.Functor ((<&>))
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Control.Monad.Reader (ReaderT (..), MonadReader)
 
-newtype SearchT e s m a = SearchT {unSearchT :: ExceptT e (StateT s (LogicT m)) a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadState s)
+newtype SearchT e r s m a = SearchT {unSearchT :: ReaderT r (ExceptT e (StateT s (LogicT m))) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadReader r, MonadState s)
 
-type SearchM e s = SearchT e s Identity
-
--- private
-unwrap :: SearchT e s m a -> s -> LogicT m (Either e a, s)
-unwrap = runStateT . runExceptT . unSearchT
+type SearchM e r s = SearchT e r s Identity
 
 -- private
-wrap :: (s -> LogicT m (Either e a, s)) -> SearchT e s m a
-wrap = SearchT . ExceptT . StateT
+unwrap :: SearchT e r s m a -> r -> s -> LogicT m (Either e a, s)
+unwrap m r = runStateT (runExceptT (runReaderT (unSearchT m) r))
 
-instance Alternative (SearchT e s m) where
-  empty = wrap (const empty)
-  x <|> y = wrap (\s -> unwrap x s <|> unwrap y s)
+-- private
+wrap :: (r -> s -> LogicT m (Either e a, s)) -> SearchT e r s m a
+wrap f = SearchT (ReaderT (ExceptT . StateT . f))
 
-instance (Monad m) => MonadLogic (SearchT e s m) where
+instance Alternative (SearchT e r s m) where
+  empty = wrap (\_ _ -> empty)
+  x <|> y = wrap (\r s -> unwrap x r s <|> unwrap y r s)
+
+instance (Monad m) => MonadLogic (SearchT e r s m) where
   msplit x =
     let f = unwrap x
-    in  wrap $ \s0 -> do
-          z <- msplit (f s0)
+    in  wrap $ \r s0 -> do
+          z <- msplit (f r s0)
           case z of
             Nothing -> empty
             Just ((ea, s1), tl) ->
               case ea of
                 Left e -> pure (Left e, s1)
-                Right a -> pure (Right (Just (a, wrap (const tl))), s1)
-  interleave x y = wrap (\s -> interleave (unwrap x s) (unwrap y s))
+                Right a -> pure (Right (Just (a, wrap (\_ _ -> tl))), s1)
+  interleave x y = wrap (\r s -> interleave (unwrap x r s) (unwrap y r s))
 
-searchAll :: (Monad m) => SearchT e s m a -> s -> m [(Either e a, s)]
-searchAll m s = observeAllT (unwrap m s)
+searchAll :: (Monad m) => SearchT e r s m a -> r -> s -> m [(Either e a, s)]
+searchAll m r s = observeAllT (unwrap m r s)
 
-searchN :: (Monad m) => Int -> SearchT e s m a -> s -> m [(Either e a, s)]
-searchN n m s = observeManyT n (unwrap m s)
+searchN :: (Monad m) => Int -> SearchT e r s m a -> r -> s -> m [(Either e a, s)]
+searchN n m r s = observeManyT n (unwrap m r s)
 
-search1 :: (Monad m) => SearchT e s m a -> s -> m (Maybe (Either e a, s))
-search1 m s =
-  searchN 1 m s <&> \case
+search1 :: (Monad m) => SearchT e r s m a -> r -> s -> m (Maybe (Either e a, s))
+search1 m r s =
+  searchN 1 m r s <&> \case
     [] -> Nothing
     z : _ -> Just z
 
-interleaveApplySeq :: (Monad m) => (x -> SearchT e s m a) -> Seq x -> SearchT e s m a
+interleaveApplySeq :: (Monad m) => (x -> SearchT e r s m a) -> Seq x -> SearchT e r s m a
 interleaveApplySeq f = go
  where
   go = \case
@@ -72,5 +73,5 @@ interleaveApplySeq f = go
       let (s1, s2) = Seq.splitAt (div (Seq.length s) 2) s
       in  interleave (go s1) (go s2)
 
-interleaveSeq :: (Monad m) => Seq (SearchT e s m a) -> SearchT e s m a
+interleaveSeq :: (Monad m) => Seq (SearchT e r s m a) -> SearchT e r s m a
 interleaveSeq = interleaveApplySeq id

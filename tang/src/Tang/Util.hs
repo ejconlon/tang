@@ -10,7 +10,7 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Traversable (for)
-import Optics (Lens', set, view)
+import Optics (Lens', set, view, over)
 
 data IxPair z = IxPair !Int !z
   deriving stock (Functor)
@@ -59,12 +59,22 @@ foldM' b fa f = foldM f b fa
 foldLastM :: (Foldable f, Alternative m) => (x -> m a) -> f x -> m a
 foldLastM f = foldl' (\ma x -> ma *> f x) empty
 
+stateL :: (MonadState s m) => Lens' s a -> (a -> (b, a)) -> m b
+stateL l f = state $ \s ->
+  let a = view l s
+      (b, a') = f a
+      s' = set l a' s
+  in (b, s')
+
 stateML :: (MonadState s m) => Lens' s a -> (a -> m (b, a)) -> m b
 stateML l f = do
   a <- gets (view l)
   (b, a') <- f a
   modify' (set l a')
   pure b
+
+modifyL :: (MonadState s m) => Lens' s a -> (a -> a) -> m ()
+modifyL l f = modify' (over l f)
 
 modifyML :: (MonadState s m) => Lens' s a -> (a -> m a) -> m ()
 modifyML l f = do

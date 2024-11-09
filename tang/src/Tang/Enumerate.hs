@@ -21,7 +21,8 @@ import Tang.Ecta
 import Tang.Search (SearchM, interleaveApplySeq)
 import Tang.UnionMap (UnionMap)
 import Tang.UnionMap qualified as UM
-import Tang.Util (foldLastM)
+import Tang.Util (foldLastM, stateL, modifyL)
+import qualified Data.Sequence as Seq
 
 newtype SynthId = SynthId {unSynthId :: Int}
   deriving stock (Show)
@@ -103,7 +104,7 @@ deriving stock instance (Eq c, Eq (f SynthId)) => Eq (Union f c)
 
 deriving stock instance (Show c, Show (f SynthId)) => Show (Union f c)
 
-class HasUnion f c s | s -> f where
+class HasUnion f c s | s -> f c where
   unionL :: Lens' s (Union f c)
 
 instance HasUnion f c (Union f c) where
@@ -137,37 +138,28 @@ eeNotable = \case
 guardNotable :: EnumM e f c a -> EnumM e f c a
 guardNotable = flip catchError (\e -> if eeNotable e then throwError e else empty)
 
-type EnumM e f c = SearchM (EnumErr e) (EnumSt f c)
+type EnumM e f c = SearchM (EnumErr e) () (EnumSt f c)
 
 enumerate :: (Alignable e f) => NodeGraph f IxEqCon -> EnumM e f c SynthId
-enumerate (NodeGraph r nm _) = goStart r
- where
-  goStart = undefined
-
--- goStart a = freshId >>= flip goContinue a
--- goContinue b a = do
---   n <- findNode a
---   handleNode a b n
--- findNode a = maybe (throwError (EnumErrNodeMissing a)) pure (ILM.lookup a nm)
--- freshId = state $ \es ->
---   let sx = es.esNextSid
---       union' =
---         case UM.add sx ElemMeta es.esUnion of
---           UM.AddResAdded u -> u
---           UM.AddResDuplicate -> error "impossible"
---   in (sx, es {esNextSid = succ sx, esUnion = union'})
--- addDefaultMeta sx = modify' $ \es ->
---   let union' =
---         case UM.add sx ElemMeta es.esUnion of
---           UM.AddResAdded u -> u
---           UM.AddResDuplicate -> error "impossible"
---   in (es {esNextSid = succ sx, esUnion = union'})
--- handleNode a b = \case
---   NodeSymbol (SymbolNode _cs _si) -> do
---
---     o <- findOrig a
---
---     error "TODO enumerate symbol"
---   NodeUnion xs -> interleaveApplySeq (goContinue b) xs
---   NodeIntersect xs -> foldLastM (goContinue b) xs
---   NodeClone _nid -> error "TODO enumerate clone"
+enumerate (NodeGraph root nm _) = goStart root where
+  goStart nid = do
+    sid <- mkFreshSynthId
+    addDefaultMeta sid
+    goContinue sid nid
+  goContinue sid nid = do
+    node <- findNode nid
+    handleNode sid nid node
+  handleNode sid _nid = \case
+    NodeSymbol _ -> error "TODO enum symbol"
+    NodeUnion xs -> interleaveApplySeq (goContinue sid) (Seq.fromList (ILS.toList xs))
+    NodeIntersect xs -> foldLastM (goContinue sid) (ILS.toList xs)
+    NodeClone _nid -> error "TODO enum clone"
+  findNode nid = maybe (throwError (EnumErrNodeMissing nid)) pure (ILM.lookup nid nm)
+  mkFreshSynthId = stateL unionL $ \u ->
+      let sid = u.unionNextSid
+      in (sid, u {unionNextSid = succ sid})
+  addDefaultMeta sid = modifyL unionL $ \u ->
+    let info = ElemInfo ILS.empty ElemMeta
+    in case UM.add sid info u.unionElems of
+      UM.AddResAdded x -> u { unionElems = x }
+      UM.AddResDuplicate -> u
