@@ -15,11 +15,11 @@ import Control.Monad.Except (ExceptT (..), MonadError, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Identity (Identity (..))
 import Control.Monad.Logic (LogicT, MonadLogic (..), observeAllT, observeManyT)
+import Control.Monad.Reader (MonadReader, ReaderT (..))
 import Control.Monad.State.Strict (MonadState, StateT (..))
 import Data.Functor ((<&>))
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
-import Control.Monad.Reader (ReaderT (..), MonadReader)
 
 newtype SearchT e r s m a = SearchT {unSearchT :: ReaderT r (ExceptT e (StateT s (LogicT m))) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadReader r, MonadState s)

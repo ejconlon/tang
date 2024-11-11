@@ -9,6 +9,7 @@ import Control.Monad.State.Strict (StateT, modify', runStateT, state)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Except (runExceptT)
 import Data.Sequence (Seq (..))
+import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Typeable (Typeable)
 import IntLike.Map (IntLikeMap)
@@ -21,8 +22,7 @@ import Tang.Ecta
 import Tang.Search (SearchM, interleaveApplySeq)
 import Tang.UnionMap (UnionMap)
 import Tang.UnionMap qualified as UM
-import Tang.Util (foldLastM, stateL, modifyL)
-import qualified Data.Sequence as Seq
+import Tang.Util (foldLastM, modifyL, stateL)
 
 newtype SynthId = SynthId {unSynthId :: Int}
   deriving stock (Show)
@@ -141,7 +141,8 @@ guardNotable = flip catchError (\e -> if eeNotable e then throwError e else empt
 type EnumM e f c = SearchM (EnumErr e) () (EnumSt f c)
 
 enumerate :: (Alignable e f) => NodeGraph f IxEqCon -> EnumM e f c SynthId
-enumerate (NodeGraph root nm _) = goStart root where
+enumerate (NodeGraph root nm _) = goStart root
+ where
   goStart nid = do
     sid <- mkFreshSynthId
     addDefaultMeta sid
@@ -156,10 +157,10 @@ enumerate (NodeGraph root nm _) = goStart root where
     NodeClone _nid -> error "TODO enum clone"
   findNode nid = maybe (throwError (EnumErrNodeMissing nid)) pure (ILM.lookup nid nm)
   mkFreshSynthId = stateL unionL $ \u ->
-      let sid = u.unionNextSid
-      in (sid, u {unionNextSid = succ sid})
+    let sid = u.unionNextSid
+    in  (sid, u {unionNextSid = succ sid})
   addDefaultMeta sid = modifyL unionL $ \u ->
     let info = ElemInfo ILS.empty ElemMeta
-    in case UM.add sid info u.unionElems of
-      UM.AddResAdded x -> u { unionElems = x }
-      UM.AddResDuplicate -> u
+    in  case UM.add sid info u.unionElems of
+          UM.AddResAdded x -> u {unionElems = x}
+          UM.AddResDuplicate -> u

@@ -10,7 +10,7 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Traversable (for)
-import Optics (Lens', set, view, over)
+import Optics (Lens', over, set, view)
 
 data IxPair z = IxPair !Int !z
   deriving stock (Functor)
@@ -64,7 +64,7 @@ stateL l f = state $ \s ->
   let a = view l s
       (b, a') = f a
       s' = set l a' s
-  in (b, s')
+  in  (b, s')
 
 stateML :: (MonadState s m) => Lens' s a -> (a -> m (b, a)) -> m b
 stateML l f = do
