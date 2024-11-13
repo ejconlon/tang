@@ -5,6 +5,8 @@ module Tang.Search
   , searchAll
   , searchN
   , search1
+  , SearchStrat (..)
+  , search
   , interleaveApplySeq
   , interleaveSeq
   )
@@ -84,6 +86,17 @@ search1 m r s =
   searchN 1 m r s <&> \case
     [] -> Nothing
     z : _ -> Just z
+
+data SearchStrat e s a x where
+  SearchStratAll :: SearchStrat e s a [(Either e a, s)]
+  SearchStratN :: Int -> SearchStrat e s a [(Either e a, s)]
+  SearchStrat1 :: SearchStrat e s a (Maybe (Either e a, s))
+
+search :: (Monad m) => SearchStrat e s a x -> SearchT e r s m a -> r -> s -> m x
+search strat = case strat of
+  SearchStratAll -> searchAll
+  SearchStratN n -> searchN n
+  SearchStrat1 -> search1
 
 interleaveApplySeq :: (Monad m) => (x -> SearchT e r s m a) -> Seq x -> SearchT e r s m a
 interleaveApplySeq f = go

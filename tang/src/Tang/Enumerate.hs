@@ -6,6 +6,7 @@ import Control.Applicative (empty)
 import Control.Exception (Exception)
 import Control.Monad (unless)
 import Control.Monad.Except (Except, MonadError (..), runExcept, throwError)
+import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (MonadReader (..), asks)
 import Control.Monad.State.Strict (StateT, gets, modify', runStateT, state)
 import Control.Monad.Trans.Except (runExceptT)
@@ -25,7 +26,17 @@ import IntLike.Set qualified as ILS
 import Optics (Lens', equality', lens)
 import Tang.Align (Alignable, alignWithM)
 import Tang.Ecta
-import Tang.Search (SearchM, interleaveApplySeq)
+  ( ChildIx (..)
+  , EqCon (..)
+  , HasNodeGraph (..)
+  , IxEqCon
+  , IxPath
+  , Node (..)
+  , NodeGraph (..)
+  , NodeId (..)
+  , SymbolNode (..)
+  )
+import Tang.Search (SearchM, SearchStrat, interleaveApplySeq, search)
 import Tang.UnionMap (UnionMap)
 import Tang.UnionMap qualified as UM
 import Tang.Util (forWithIndex_, modifyL, stateL, unionILM)
@@ -181,6 +192,9 @@ data EnumEnv = EnumEnv
   deriving stock (Eq, Ord, Show)
 
 type EnumM e f c = SearchM (EnumErr e) EnumEnv (EnumSt f c)
+
+runEnumM :: SearchStrat (EnumErr e) (EnumSt f c) a x -> EnumM e f c a -> EnumEnv -> EnumSt f c -> x
+runEnumM strat m env st = runIdentity (search strat m env st)
 
 -- Distinguish between "true errors" and those that should just terminate
 -- a particular branch of enumeration quietly
