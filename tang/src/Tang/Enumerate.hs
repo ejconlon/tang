@@ -126,7 +126,7 @@ instance HasUnion f (EnumSt f c) where
 
 data EnumErr e
   = EnumErrNodeMissing !IxPath !NodeId
-  | EnumErrCycle !IxPath !NodeId
+  | EnumErrMerge !IxPath !SynthId !SynthId !e
   | EnumErrAlign !IxPath !NodeId !e
   deriving stock (Eq, Ord, Show)
 
@@ -135,7 +135,7 @@ instance (Show e, Typeable e) => Exception (EnumErr e)
 erNotable :: EnumErr e -> Bool
 erNotable = \case
   EnumErrNodeMissing {} -> True
-  EnumErrCycle {} -> True
+  EnumErrMerge {} -> False
   EnumErrAlign {} -> False
 
 -- | Constraint fragment: PEC -> Metavar
@@ -291,10 +291,32 @@ insertElemNode sid nid ne = do
   pure qs
 
 mergeClassesStep :: (Alignable e f) => IntLikeSet SynthId -> EnumM e f c (Seq SynEqCon)
-mergeClassesStep = todo
+mergeClassesStep = goStart
+ where
+  goStart xs0 = do
+    case ILS.toList xs0 of
+      [] -> pure Empty
+      x1 : xs -> do
+        elems <- gets (unionElems . esUnion)
+        (acc, elems') <- goAcc Empty elems x1 xs
+        modify' (\es -> es {esUnion = es.esUnion {unionElems = elems'}})
+        pure acc
+  goAcc !acc !elems !x1 = \case
+    [] -> pure (acc, elems)
+    (x2 : xs) ->
+      case UM.mergeOne mergeElemInfo x1 x2 elems of
+        UM.MergeResMissing _ -> error "impossible"
+        UM.MergeResEmbed e -> asks eePath >>= \p -> throwError (EnumErrMerge p x1 x2 e)
+        UM.MergeResMerged _ _ yss elems' -> goAcc (acc <> yss) elems' x2 xs
 
 mergeClasses :: (Alignable e f) => IntLikeSet SynthId -> EnumM e f c ()
-mergeClasses = todo
+mergeClasses = go . Seq.singleton
+ where
+  go = \case
+    Empty -> pure ()
+    xs :<| xss -> do
+      yss <- mergeClassesStep xs
+      go (yss <> xss)
 
 suspend :: SynthId -> NodeId -> EnumM e f c ()
 suspend sid nid = do
