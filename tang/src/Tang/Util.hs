@@ -5,14 +5,14 @@ import Control.Monad (foldM)
 import Control.Monad.State.Strict (MonadState (..), evalStateT, gets, modify')
 import Control.Monad.Trans (lift)
 import Data.Foldable (foldl', toList, traverse_)
+import Data.IntMap.Strict qualified as IM
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Traversable (for)
-import Optics (Lens', over, set, view)
 import IntLike.Map (IntLikeMap (..))
-import qualified Data.IntMap.Strict as IM
+import Optics (Lens', over, set, view)
 
 data IxPair z = IxPair !Int !z
   deriving stock (Functor)
@@ -39,7 +39,7 @@ traverseWithIndex f s =
       IxPair _ mfb = unIxM t 0
   in  mfb
 
-traverseWithIndex_ :: (Foldable f, Applicative m) => (Int -> a -> m ()) -> f a -> m ()
+traverseWithIndex_ :: (Foldable f, Applicative m) => (Int -> a -> m b) -> f a -> m ()
 traverseWithIndex_ f s =
   let g a = IxM (\i -> IxPair (i + 1) (f i a))
       t = traverse_ g s
@@ -49,7 +49,7 @@ traverseWithIndex_ f s =
 forWithIndex :: (Traversable f, Applicative m) => f a -> (Int -> a -> m b) -> m (f b)
 forWithIndex = flip traverseWithIndex
 
-forWithIndex_ :: (Foldable f, Applicative m) => f a -> (Int -> a -> m ()) -> m ()
+forWithIndex_ :: (Foldable f, Applicative m) => f a -> (Int -> a -> m b) -> m ()
 forWithIndex_ = flip traverseWithIndex_
 
 seqFromFoldable :: (Foldable f) => f a -> Seq a
@@ -109,4 +109,3 @@ zipWithM f fa fb =
 
 unionILM :: (Semigroup v) => IntLikeMap k v -> IntLikeMap k v -> IntLikeMap k v
 unionILM (IntLikeMap m1) (IntLikeMap m2) = IntLikeMap (IM.unionWith (<>) m1 m2)
-

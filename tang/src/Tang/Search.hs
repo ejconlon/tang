@@ -17,15 +17,16 @@ import Control.Monad.Identity (Identity (..))
 import Control.Monad.Logic (LogicT, MonadLogic (..), observeAllT, observeManyT)
 import Control.Monad.Reader (MonadReader (..))
 import Control.Monad.State.Strict (MonadState (..), StateT (..), gets, modify')
+import Data.Bifunctor (second)
 import Data.Functor ((<&>))
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
-import Data.Bifunctor (second)
 
 data SearchSt r s = SearchSt
   { ssEnv :: !r
   , ssSt :: !s
-  } deriving stock (Eq, Ord, Show)
+  }
+  deriving stock (Eq, Ord, Show)
 
 newtype SearchT e r s m a = SearchT {unSearchT :: ExceptT e (StateT (SearchSt r s) (LogicT m)) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e)
@@ -35,17 +36,17 @@ type SearchM e r s = SearchT e r s Identity
 instance MonadReader r (SearchT e r s m) where
   ask = SearchT (gets ssEnv)
   local f (SearchT m) = SearchT $ do
-    r0 <- state (\ss -> let r0 = ssEnv ss in (r0, ss { ssEnv = f r0 }))
+    r0 <- state (\ss -> let r0 = ssEnv ss in (r0, ss {ssEnv = f r0}))
     a <- catchError m $ \e -> do
-      modify' (\ss -> ss { ssEnv = r0 })
+      modify' (\ss -> ss {ssEnv = r0})
       throwError e
-    a <$ modify' (\ss -> ss { ssEnv = r0 })
+    a <$ modify' (\ss -> ss {ssEnv = r0})
   reader f = SearchT (gets (f . ssEnv))
 
 instance MonadState s (SearchT e r s m) where
   get = SearchT (gets ssSt)
-  put s = SearchT (modify' (\ss -> ss { ssSt = s }))
-  state f = SearchT (state (\ss -> let s0 = ssSt ss in let (a, s1) = f s0 in (a, ss { ssSt = s1 })))
+  put s = SearchT (modify' (\ss -> ss {ssSt = s}))
+  state f = SearchT (state (\ss -> let s0 = ssSt ss in let (a, s1) = f s0 in (a, ss {ssSt = s1})))
 
 -- private
 unwrap :: SearchT e r s m a -> r -> s -> LogicT m (Either e a, s)
