@@ -5,6 +5,7 @@ module Tang.UnionMap
   , Equiv (..)
   , emptyEquiv
   , Entry (..)
+  , filterRootEntries
   , MergeOne
   , MergeMany
   , adaptMergeOne
@@ -53,24 +54,20 @@ module Tang.UnionMap
   , mergeMany
   , mergeManyLM
   , mergeManyM
-  , extract
-  , extractLM
-  , extractM
   )
 where
 
-import Control.Monad (unless)
 import Control.Monad.Except (Except, MonadError (..), runExcept)
-import Control.Monad.State.Strict (MonadState, StateT, execState, get, gets, put, runStateT, state)
+import Control.Monad.State.Strict (MonadState, StateT, get, put, runStateT, state)
 import Data.Coerce (Coercible)
 import Data.Foldable (fold, foldl')
 import Data.Foldable qualified as F
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Lens', Traversal', equality', over, set, traverseOf_, view)
+import Optics (Lens', Traversal', equality', over, set, view)
 import Prelude hiding (lookup)
 
 -- Private util
@@ -129,6 +126,13 @@ data Entry k v
   = EntryLink !k
   | EntryValue !v
   deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable)
+
+filterRootEntries :: (Coercible k Int) => IntLikeMap k (Entry k v) -> IntLikeMap k v
+filterRootEntries = ILM.fromList . mapMaybe (uncurry go) . ILM.toList
+ where
+  go k = \case
+    EntryLink _ -> Nothing
+    EntryValue v -> Just (k, v)
 
 type MergeOne e v r = Maybe v -> v -> Either e (r, v)
 
@@ -281,43 +285,48 @@ equivM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (Equiv k)
 equivM = equivLM equality'
 
 -- | Compresses all paths so there is never more than one jump to the root of each class
--- Retains all keys in the map but returns a mapping of non-root -> root keys
-compact :: (Coercible k Int) => UnionMap k v -> (IntLikeMap k k, UnionMap k v)
+-- Retains all keys in the map.
+compact :: (Coercible k Int) => UnionMap k v -> (IntLikeMap k (Entry k v), UnionMap k v)
 compact u = foldl' go (ILM.empty, u) (toList u)
  where
   go mw@(m, w) (k, ue) =
     if ILM.member k m
       then mw
       else case ue of
-        EntryValue _ -> mw
+        EntryValue _ -> (ILM.insert k ue m, w)
         EntryLink _ ->
           case trace k w of
             TraceResMissing _ -> error "impossible"
             TraceResFound r _ kacc ->
-              foldl' (\(m', w') j -> (ILM.insert j r m', UnionMap (ILM.insert j (EntryLink r) (unUnionMap w')))) mw kacc
+              foldl' (\(m', w') j -> (ILM.insert j (EntryLink r) m', UnionMap (ILM.insert j (EntryLink r) (unUnionMap w')))) mw kacc
 
-compactLM :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> m (IntLikeMap k k)
+compactLM :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> m (IntLikeMap k (Entry k v))
 compactLM l = stateLens l compact
 
-compactM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (IntLikeMap k k)
+compactM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (IntLikeMap k (Entry k v))
 compactM = compactLM equality'
 
 -- | Compacts and rewrites all values with canonical keys.
--- Retains all keys in the map and again returns a mapping of non-root -> root keys.
--- TODO remove non-canonical keys?
-canonicalize :: (Coercible k Int) => Traversal' v k -> UnionMap k v -> (IntLikeMap k k, UnionMap k v)
+-- Retains all keys in the map.
+canonicalize :: (Coercible k Int) => Traversal' v k -> UnionMap k v -> (IntLikeMap k (Entry k v), UnionMap k v)
 canonicalize t u = res
  where
   res = let (m, UnionMap w) = compact u in (m, UnionMap (fmap (go m) w))
   go m ue =
     case ue of
       EntryLink _ -> ue
-      EntryValue fk -> EntryValue (over t (\j -> ILM.findWithDefault j j m) fk)
+      EntryValue fk -> EntryValue (over t (getRoot m) fk)
+  getRoot m j =
+    case ILM.lookup j m of
+      Nothing -> error "impossible"
+      Just (EntryLink k) -> k
+      Just (EntryValue _) -> j
 
-canonicalizeLM :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> Traversal' v k -> m (IntLikeMap k k)
+canonicalizeLM
+  :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> Traversal' v k -> m (IntLikeMap k (Entry k v))
 canonicalizeLM l t = stateLens l (canonicalize t)
 
-canonicalizeM :: (Coercible k Int, MonadState (UnionMap k v) m) => Traversal' v k -> m (IntLikeMap k k)
+canonicalizeM :: (Coercible k Int, MonadState (UnionMap k v) m) => Traversal' v k -> m (IntLikeMap k (Entry k v))
 canonicalizeM = canonicalizeLM equality'
 
 data UpdateRes e k v r
@@ -461,37 +470,3 @@ mergeManyM
   -> f k
   -> m (MergeVal e k v r)
 mergeManyM = mergeManyLM equality'
-
-data ExSt k v = ExSt {esSeen :: !(IntLikeSet k), esOut :: !(IntLikeMap k v)}
-
--- | Return the subgraph accessible from a given key.
--- NOTE Only valid for canonicalized maps!
--- TODO thread path compaction through this anyway
--- TODO report missing keys instead of ignoring
--- TODO insert canonical keys and return canonical root
-extract :: (Coercible k Int) => Traversal' v k -> k -> UnionMap k v -> IntLikeMap k v
-extract t k0 m = esOut (execState (go k0) (ExSt ILS.empty ILM.empty))
- where
-  go k = do
-    ExSt seen out <- get
-    unless (ILS.member k seen) $ do
-      case lookup k m of
-        LookupResMissing _ -> pure ()
-        LookupResFound _ v _ -> do
-          put (ExSt (ILS.insert k seen) (ILM.insert k v out))
-          traverseOf_ t go v
-
-extractLM
-  :: (Coercible k Int, MonadState s m)
-  => UnionMapLens s k v
-  -> Traversal' v k
-  -> k
-  -> m (IntLikeMap k v)
-extractLM l t k = fmap (extract t k) (gets (view l))
-
-extractM
-  :: (Coercible k Int, MonadState (UnionMap k v) m)
-  => Traversal' v k
-  -> k
-  -> m (IntLikeMap k v)
-extractM = extractLM equality'

@@ -23,7 +23,7 @@ import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Optics (Lens', equality', lens)
+import Optics (Lens', Traversal', equality', lens, traversalVL, traverseOf)
 import Tang.Align (Alignable, alignWithM)
 import Tang.Ecta
   ( ChildIx (..)
@@ -57,6 +57,11 @@ deriving stock instance (Ord (f SynthId)) => Ord (Elem f)
 
 deriving stock instance (Show (f SynthId)) => Show (Elem f)
 
+elemSidTrav :: (Traversable f) => Traversal' (Elem f) SynthId
+elemSidTrav = traversalVL $ \g -> \case
+  ElemMeta -> pure ElemMeta
+  ElemNode fs -> fmap ElemNode (traverse g fs)
+
 -- | Annotates a metavar with info about what nodes it represents
 data ElemInfo f = ElemInfo
   { eiNodes :: !(IntLikeSet NodeId)
@@ -66,6 +71,9 @@ data ElemInfo f = ElemInfo
 deriving stock instance (Eq (f SynthId)) => Eq (ElemInfo f)
 
 deriving stock instance (Show (f SynthId)) => Show (ElemInfo f)
+
+eiSidTrav :: (Traversable f) => Traversal' (ElemInfo f) SynthId
+eiSidTrav = traversalVL (\g (ElemInfo n e) -> fmap (ElemInfo n) (traverseOf elemSidTrav g e))
 
 type SynEqCon = IntLikeSet SynthId
 
@@ -116,6 +124,9 @@ class HasUnion f s | s -> f where
 instance HasUnion f (Union f) where
   unionL = equality'
 
+initUnion :: Union f
+initUnion = Union 0 ILM.empty UM.empty
+
 data Susp = Susp
   { suspSid :: !SynthId
   , suspEnv :: !EnumEnv
@@ -135,8 +146,12 @@ instance HasNodeGraph f c (EnumSt f c) where
 instance HasUnion f (EnumSt f c) where
   unionL = lens esUnion (\x y -> x {esUnion = y})
 
+initEnumSt :: NodeGraph f c -> EnumSt f c
+initEnumSt ng = EnumSt ng initUnion ILM.empty ILS.empty
+
 data EnumErr e
-  = EnumErrNodeMissing !IxPath !NodeId
+  = EnumErrUnsolved
+  | EnumErrNodeMissing !IxPath !NodeId
   | EnumErrMerge !IxPath !SynthId !SynthId !e
   | EnumErrAlign !IxPath !NodeId !e
   deriving stock (Eq, Ord, Show)
@@ -145,6 +160,7 @@ instance (Show e, Typeable e) => Exception (EnumErr e)
 
 erNotable :: EnumErr e -> Bool
 erNotable = \case
+  EnumErrUnsolved -> True
   EnumErrNodeMissing {} -> True
   EnumErrMerge {} -> False
   EnumErrAlign {} -> False
@@ -191,10 +207,17 @@ data EnumEnv = EnumEnv
   }
   deriving stock (Eq, Ord, Show)
 
+initEnumEnv :: EnumEnv
+initEnumEnv = EnumEnv Empty mempty
+
 type EnumM e f c = SearchM (EnumErr e) EnumEnv (EnumSt f c)
 
 runEnumM :: SearchStrat (EnumErr e) (EnumSt f c) a x -> EnumM e f c a -> EnumEnv -> EnumSt f c -> x
 runEnumM strat m env st = runIdentity (search strat m env st)
+
+enumerate
+  :: (Alignable e f) => SearchStrat (EnumErr e) (EnumSt f IxEqCon) (Synth f) x -> NodeId -> NodeGraph f IxEqCon -> x
+enumerate strat nid ng = runEnumM strat (guardNotable (enumSynth nid)) initEnumEnv (initEnumSt ng)
 
 -- Distinguish between "true errors" and those that should just terminate
 -- a particular branch of enumeration quietly
@@ -337,26 +360,37 @@ suspend sid nid = do
   env <- ask
   modify' (\es -> es {esSuspended = ILM.insert nid (Susp sid env) es.esSuspended})
 
-enumerate :: (Alignable e f) => NodeId -> EnumM e f IxEqCon (SynthId, Bool)
-enumerate nid = enumStep nid >>= \(sid, _) -> fmap (sid,) enumLoop
+data Synth f = Synth
+  { synthRoot :: !SynthId
+  , synthDag :: !(IntLikeMap SynthId (ElemInfo f))
+  }
 
-enumLoop :: (Alignable e f) => EnumM e f IxEqCon Bool
+enumSynth :: (Alignable e f) => NodeId -> EnumM e f IxEqCon (Synth f)
+enumSynth nid = do
+  root <- enumStart nid
+  dag <- stateL unionL $ \u ->
+    let (m, elems') = UM.canonicalize eiSidTrav (unionElems u)
+    in  (UM.filterRootEntries m, u {unionElems = elems'})
+  pure (Synth root dag)
+
+enumStart :: (Alignable e f) => NodeId -> EnumM e f IxEqCon SynthId
+enumStart nid = do
+  sid <- lookupOrFreshMeta nid
+  _ <- enumStepGuarded sid nid
+  sid <$ enumLoop
+
+enumLoop :: (Alignable e f) => EnumM e f IxEqCon ()
 enumLoop = goStart
  where
   goStart = do
     susp <- state (\es -> (es.esSuspended, es {esSuspended = ILM.empty}))
-    if ILM.null susp
-      then pure True
-      else goLoop False (ILM.toList susp)
+    unless (ILM.null susp) (goLoop False (ILM.toList susp))
   goLoop !progress = \case
-    [] -> if progress then goStart else pure False
+    [] -> if progress then goStart else throwError EnumErrUnsolved
     (nid, Susp sid env) : rest -> do
       (_, stepProgress) <- local (const env) $ do
         enumStepGuarded sid nid
       goLoop (progress || stepProgress) rest
-
-enumStep :: (Alignable e f) => NodeId -> EnumM e f IxEqCon (SynthId, Bool)
-enumStep nid = lookupOrFreshMeta nid >>= \sid -> enumStepGuarded sid nid
 
 enumStepGuarded :: (Alignable e f) => SynthId -> NodeId -> EnumM e f IxEqCon (SynthId, Bool)
 enumStepGuarded = goGuarded
