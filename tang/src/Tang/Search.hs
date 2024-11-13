@@ -11,28 +11,49 @@ module Tang.Search
 where
 
 import Control.Applicative (Alternative (..))
-import Control.Monad.Except (ExceptT (..), MonadError, runExceptT)
+import Control.Monad.Except (ExceptT (..), MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Identity (Identity (..))
 import Control.Monad.Logic (LogicT, MonadLogic (..), observeAllT, observeManyT)
-import Control.Monad.Reader (MonadReader, ReaderT (..))
-import Control.Monad.State.Strict (MonadState, StateT (..))
+import Control.Monad.Reader (MonadReader (..))
+import Control.Monad.State.Strict (MonadState (..), StateT (..), gets, modify')
 import Data.Functor ((<&>))
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Data.Bifunctor (second)
 
-newtype SearchT e r s m a = SearchT {unSearchT :: ReaderT r (ExceptT e (StateT s (LogicT m))) a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e, MonadReader r, MonadState s)
+data SearchSt r s = SearchSt
+  { ssEnv :: !r
+  , ssSt :: !s
+  } deriving stock (Eq, Ord, Show)
+
+newtype SearchT e r s m a = SearchT {unSearchT :: ExceptT e (StateT (SearchSt r s) (LogicT m)) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError e)
 
 type SearchM e r s = SearchT e r s Identity
 
+instance MonadReader r (SearchT e r s m) where
+  ask = SearchT (gets ssEnv)
+  local f (SearchT m) = SearchT $ do
+    r0 <- state (\ss -> let r0 = ssEnv ss in (r0, ss { ssEnv = f r0 }))
+    a <- catchError m $ \e -> do
+      modify' (\ss -> ss { ssEnv = r0 })
+      throwError e
+    a <$ modify' (\ss -> ss { ssEnv = r0 })
+  reader f = SearchT (gets (f . ssEnv))
+
+instance MonadState s (SearchT e r s m) where
+  get = SearchT (gets ssSt)
+  put s = SearchT (modify' (\ss -> ss { ssSt = s }))
+  state f = SearchT (state (\ss -> let s0 = ssSt ss in let (a, s1) = f s0 in (a, ss { ssSt = s1 })))
+
 -- private
 unwrap :: SearchT e r s m a -> r -> s -> LogicT m (Either e a, s)
-unwrap m r = runStateT (runExceptT (runReaderT (unSearchT m) r))
+unwrap m r s = fmap (second ssSt) (runStateT (runExceptT (unSearchT m)) (SearchSt r s))
 
 -- private
 wrap :: (r -> s -> LogicT m (Either e a, s)) -> SearchT e r s m a
-wrap f = SearchT (ReaderT (ExceptT . StateT . f))
+wrap f = SearchT (ExceptT (StateT (\(SearchSt r s) -> fmap (second (SearchSt r)) (f r s))))
 
 instance Alternative (SearchT e r s m) where
   empty = wrap (\_ _ -> empty)
