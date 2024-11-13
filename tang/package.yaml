@@ -26,6 +26,7 @@ dependencies:
 - these
 - nonempty-containers
 - optics
+- prettyprinter
 # test deps
 - prop-unit >= 0.1.3
 # dev deps

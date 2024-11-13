@@ -3,12 +3,15 @@
 
 module Tang.Test.Symbolic where
 
+import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import Data.Set qualified as Set
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
+import Prettyprinter (Doc, Pretty (..))
+import Prettyprinter qualified as P
 import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
 import Tang.Ecta (Edge (..), GraphM, NodeGraph, NodeId, SegEqCon, addSymbol)
@@ -20,6 +23,12 @@ newtype Symbol = Symbol {unSymbol :: Text}
 
 data Symbolic a = Symbolic !Symbol !(Seq a)
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+symPretty :: (a -> Doc ann) -> Symbolic a -> Doc ann
+symPretty f (Symbolic hd tl) = "(" <> P.hsep (pretty (unSymbol hd) : fmap f (toList tl)) <> ")"
+
+instance (Pretty a) => Pretty (Symbolic a) where
+  pretty = symPretty pretty
 
 instance Alignable EqAlignErr Symbolic where
   alignWithM = eqAlignWithM
