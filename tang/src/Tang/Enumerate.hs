@@ -140,6 +140,10 @@ data EnumSt f c = EnumSt
   , esSeen :: !(IntLikeSet NodeId)
   }
 
+deriving stock instance (Eq c, Eq (f NodeId), Eq (f SynthId)) => Eq (EnumSt f c)
+
+deriving stock instance (Show c, Show (f NodeId), Show (f SynthId)) => Show (EnumSt f c)
+
 instance HasNodeGraph f c (EnumSt f c) where
   nodeGraphL = lens esGraph (\x y -> x {esGraph = y})
 
@@ -364,6 +368,10 @@ data Synth f = Synth
   { synthRoot :: !SynthId
   , synthDag :: !(IntLikeMap SynthId (ElemInfo f))
   }
+
+deriving stock instance (Eq (f SynthId)) => Eq (Synth f)
+
+deriving stock instance (Show (f SynthId)) => Show (Synth f)
 
 enumSynth :: (Alignable e f) => NodeId -> EnumM e f IxEqCon (Synth f)
 enumSynth nid = do

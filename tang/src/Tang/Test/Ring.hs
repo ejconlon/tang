@@ -5,6 +5,7 @@ module Tang.Test.Ring where
 import Data.Functor.Foldable (Base, Corecursive (..), Recursive (..))
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
+import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
 import Tang.Ecta (NodeGraph, NodeId, SegEqCon)
 import Tang.Render (RenderM)
@@ -16,6 +17,9 @@ data RingF r
   | RingMul r r
   | RingVar !String
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+instance Alignable EqAlignErr RingF where
+  alignWithM = eqAlignWithM
 
 newtype Ring = Ring {unRing :: RingF Ring}
   deriving stock (Eq, Ord, Show)

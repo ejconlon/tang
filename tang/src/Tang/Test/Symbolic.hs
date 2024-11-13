@@ -9,6 +9,7 @@ import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
 import Data.Text.Lazy.Builder qualified as TLB
+import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
 import Tang.Ecta (Edge (..), GraphM, NodeGraph, NodeId, SegEqCon, addSymbol)
 import Tang.Render (RenderM)
@@ -19,6 +20,9 @@ newtype Symbol = Symbol {unSymbol :: Text}
 
 data Symbolic a = Symbolic !Symbol !(Seq a)
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+instance Alignable EqAlignErr Symbolic where
+  alignWithM = eqAlignWithM
 
 exampleX :: GraphM Symbolic SegEqCon NodeId
 exampleX = addSymbol (Symbolic "x" []) Set.empty
