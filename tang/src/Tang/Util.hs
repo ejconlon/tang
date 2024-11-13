@@ -11,6 +11,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Traversable (for)
 import Optics (Lens', over, set, view)
+import IntLike.Map (IntLikeMap (..))
+import qualified Data.IntMap.Strict as IM
 
 data IxPair z = IxPair !Int !z
   deriving stock (Functor)
@@ -104,3 +106,7 @@ zipWithM f fa fb =
             mc : lmc' -> do
               put lmc'
               lift mc
+
+unionILM :: (Semigroup v) => IntLikeMap k v -> IntLikeMap k v -> IntLikeMap k v
+unionILM (IntLikeMap m1) (IntLikeMap m2) = IntLikeMap (IM.unionWith (<>) m1 m2)
+
