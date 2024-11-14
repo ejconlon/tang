@@ -3,7 +3,9 @@
 
 module Tang.Test.Symbolic where
 
+import Control.Monad.Identity (Identity (..))
 import Data.Foldable (toList)
+import Data.Functor ((<&>))
 import Data.Sequence (Seq)
 import Data.Set qualified as Set
 import Data.String (IsString)
@@ -16,8 +18,6 @@ import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
 import Tang.Ecta (Edge (..), GraphM, NodeGraph, NodeId, SegEqCon, addSymbol)
 import Tang.Render (RenderM)
-import Data.Functor ((<&>))
-import Control.Monad.Identity (Identity(..))
 
 newtype Symbol = Symbol {unSymbol :: Text}
   deriving newtype (Eq, Ord, IsString)
