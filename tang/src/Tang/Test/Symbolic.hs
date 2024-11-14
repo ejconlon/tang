@@ -16,6 +16,8 @@ import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
 import Tang.Ecta (Edge (..), GraphM, NodeGraph, NodeId, SegEqCon, addSymbol)
 import Tang.Render (RenderM)
+import Data.Functor ((<&>))
+import Control.Monad.Identity (Identity(..))
 
 newtype Symbol = Symbol {unSymbol :: Text}
   deriving newtype (Eq, Ord, IsString)
@@ -24,8 +26,13 @@ newtype Symbol = Symbol {unSymbol :: Text}
 data Symbolic a = Symbolic !Symbol !(Seq a)
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable)
 
+symPrettyM :: (Monad m) => (a -> m (Doc ann)) -> Symbolic a -> m (Doc ann)
+symPrettyM f (Symbolic hd tl) =
+  traverse f (toList tl) <&> \fs ->
+    "(" <> P.hsep (pretty (unSymbol hd) : fs) <> ")"
+
 symPretty :: (a -> Doc ann) -> Symbolic a -> Doc ann
-symPretty f (Symbolic hd tl) = "(" <> P.hsep (pretty (unSymbol hd) : fmap f (toList tl)) <> ")"
+symPretty f = runIdentity . symPrettyM (Identity . f)
 
 instance (Pretty a) => Pretty (Symbolic a) where
   pretty = symPretty pretty

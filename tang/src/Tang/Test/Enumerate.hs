@@ -5,24 +5,38 @@ module Tang.Test.Enumerate (testEnumerate) where
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExcept)
 import Control.Monad.IO.Class (liftIO)
-import Data.Coerce (Coercible, coerce)
 import Data.Sequence (Seq (..))
 import Data.Text (Text)
 import IntLike.Map qualified as ILM
-import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutSmart)
+import Prettyprinter (defaultLayoutOptions, layoutSmart, Doc)
 import Prettyprinter.Render.Text (renderStrict)
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Align (Alignable)
 import Tang.Ecta (GraphM, IxEqCon, NodeId, SegEqCon, buildGraph, eqConT, ngRewriteSeg)
 import Tang.Enumerate (Elem (..), ElemInfo (..), EnumErr, EnumSt, Synth (..), SynthId (..), enumerate)
 import Tang.Search (SearchStrat (..))
-import Tang.Test.Symbolic (Symbolic (..), exampleX, symPretty)
+import Tang.Test.Symbolic (Symbolic (..), exampleX, symPrettyM, exampleFxx)
+import IntLike.Map (IntLikeMap)
+import Control.Monad.Reader (Reader, runReader, asks)
+import qualified Data.Set as Set
 
 -- TODO move to lib
 type EnumStrat e f = SearchStrat (EnumErr e) (EnumSt f IxEqCon) (Synth f)
 
-symText :: (Coercible k Int) => Symbolic k -> Text
-symText = renderStrict . layoutSmart defaultLayoutOptions . symPretty (pretty . coerce @_ @Int)
+type RenderM = Reader (IntLikeMap SynthId (ElemInfo Symbolic))
+
+synthDoc :: Synth Symbolic -> Doc ann
+synthDoc (Synth root dag) = runReader (go root) dag where
+  go sid = do
+    mx <- asks (ILM.lookup sid)
+    case mx of
+      Nothing -> error "bad graph"
+      Just (ElemInfo _ el) -> case el of
+        ElemMeta -> pure "*"
+        ElemNode fs -> symPrettyM go fs
+
+synthText :: Synth Symbolic -> Text
+synthText = renderStrict . layoutSmart defaultLayoutOptions . synthDoc
 
 data EnumCase where
   EnumCase
@@ -43,6 +57,17 @@ runEnumCase (EnumCase name strat graph kont) =
             let x = enumerate strat root ngByIx
             kont x
 
+mkSynthCase :: TestName -> [Text] -> GraphM Symbolic SegEqCon NodeId -> EnumCase
+mkSynthCase name results graph =
+  let lim = 1000
+  in EnumCase name (SearchStratN lim) graph $ \xs ->
+    case mapM fst xs of
+      Left e -> liftIO (throwIO e)
+      Right as ->
+        let expected = Set.fromList results
+            actual = Set.fromList (fmap synthText as)
+        in expected === actual
+
 enumCases :: [EnumCase]
 enumCases =
   [ EnumCase "basic" SearchStratAll exampleX $ \case
@@ -59,6 +84,8 @@ enumCases =
                   hd === "x"
                   tl === Empty
       _ -> fail "expected singleton"
+  , mkSynthCase "x again" ["(x)"] exampleX
+  , mkSynthCase "fxx" ["(f (x) (x))"] exampleFxx
   ]
 
 testEnumerate :: TestTree
