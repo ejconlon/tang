@@ -18,7 +18,7 @@ import Tang.Align (Alignable)
 import Tang.Ecta (GraphM, IxEqCon, NodeId, SegEqCon, buildGraph, eqConT, ngRewriteSeg)
 import Tang.Enumerate (Elem (..), ElemInfo (..), EnumErr, EnumSt, Synth (..), SynthId (..), enumerate)
 import Tang.Search (SearchStrat (..))
-import Tang.Test.Symbolic (Symbolic (..), exampleFxx, exampleX, symPrettyM)
+import Tang.Test.Symbolic (Symbolic (..), exampleFxx, exampleFxxyy, exampleX, symPrettyM)
 
 -- TODO move to lib
 type EnumStrat e f = SearchStrat (EnumErr e) (EnumSt f IxEqCon) (Synth f)
@@ -64,10 +64,14 @@ mkSynthCase name results graph =
   in  EnumCase name (SearchStratN lim) graph $ \xs ->
         case mapM fst xs of
           Left e -> liftIO (throwIO e)
-          Right as ->
+          Right as -> do
             let expected = Set.fromList results
                 actual = Set.fromList (fmap synthText as)
-            in  expected === actual
+            liftIO $ do
+              putStr "graphs:   " >> print as
+              putStr "expected: " >> print expected
+              putStr "actual:   " >> print actual
+            expected === actual
 
 enumCases :: [EnumCase]
 enumCases =
@@ -87,6 +91,7 @@ enumCases =
       _ -> fail "expected singleton"
   , mkSynthCase "x again" ["(x)"] exampleX
   , mkSynthCase "fxx" ["(f (x) (x))"] exampleFxx
+  , mkSynthCase "fxx|fyy" ["(f (x) (x))", "(f (y) (y))"] exampleFxxyy
   ]
 
 testEnumerate :: TestTree

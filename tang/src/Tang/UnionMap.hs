@@ -54,6 +54,9 @@ module Tang.UnionMap
   , mergeMany
   , mergeManyLM
   , mergeManyM
+  , extract
+  , extractLM
+  , extractM
   )
 where
 
@@ -285,48 +288,44 @@ equivM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (Equiv k)
 equivM = equivLM equality'
 
 -- | Compresses all paths so there is never more than one jump to the root of each class
--- Retains all keys in the map.
-compact :: (Coercible k Int) => UnionMap k v -> (IntLikeMap k (Entry k v), UnionMap k v)
+-- Retains all keys in the map but returns a mapping of non-root -> root keys
+compact :: (Coercible k Int) => UnionMap k v -> (IntLikeMap k k, UnionMap k v)
 compact u = foldl' go (ILM.empty, u) (toList u)
  where
   go mw@(m, w) (k, ue) =
     if ILM.member k m
       then mw
       else case ue of
-        EntryValue _ -> (ILM.insert k ue m, w)
+        EntryValue _ -> mw
         EntryLink _ ->
           case trace k w of
             TraceResMissing _ -> error "impossible"
             TraceResFound r _ kacc ->
-              foldl' (\(m', w') j -> (ILM.insert j (EntryLink r) m', UnionMap (ILM.insert j (EntryLink r) (unUnionMap w')))) mw kacc
+              foldl' (\(m', w') j -> (ILM.insert j r m', UnionMap (ILM.insert j (EntryLink r) (unUnionMap w')))) mw kacc
 
-compactLM :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> m (IntLikeMap k (Entry k v))
+compactLM :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> m (IntLikeMap k k)
 compactLM l = stateLens l compact
 
-compactM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (IntLikeMap k (Entry k v))
+compactM :: (Coercible k Int, MonadState (UnionMap k v) m) => m (IntLikeMap k k)
 compactM = compactLM equality'
 
 -- | Compacts and rewrites all values with canonical keys.
--- Retains all keys in the map.
-canonicalize :: (Coercible k Int) => Traversal' v k -> UnionMap k v -> (IntLikeMap k (Entry k v), UnionMap k v)
+-- Retains all keys in the map and again returns a mapping of non-root -> root keys.
+-- TODO remove non-canonical keys?
+canonicalize :: (Coercible k Int) => Traversal' v k -> UnionMap k v -> (IntLikeMap k k, UnionMap k v)
 canonicalize t u = res
  where
   res = let (m, UnionMap w) = compact u in (m, UnionMap (fmap (go m) w))
   go m ue =
     case ue of
       EntryLink _ -> ue
-      EntryValue fk -> EntryValue (over t (getRoot m) fk)
-  getRoot m j =
-    case ILM.lookup j m of
-      Nothing -> error "impossible"
-      Just (EntryLink k) -> k
-      Just (EntryValue _) -> j
+      EntryValue fk -> EntryValue (over t (\j -> ILM.findWithDefault j j m) fk)
 
 canonicalizeLM
-  :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> Traversal' v k -> m (IntLikeMap k (Entry k v))
+  :: (Coercible k Int, MonadState s m) => UnionMapLens s k v -> Traversal' v k -> m (IntLikeMap k k)
 canonicalizeLM l t = stateLens l (canonicalize t)
 
-canonicalizeM :: (Coercible k Int, MonadState (UnionMap k v) m) => Traversal' v k -> m (IntLikeMap k (Entry k v))
+canonicalizeM :: (Coercible k Int, MonadState (UnionMap k v) m) => Traversal' v k -> m (IntLikeMap k k)
 canonicalizeM = canonicalizeLM equality'
 
 data UpdateRes e k v r
@@ -470,3 +469,29 @@ mergeManyM
   -> f k
   -> m (MergeVal e k v r)
 mergeManyM = mergeManyLM equality'
+
+-- | Return the subgraph accessible from a given key.
+extract :: (Coercible k Int) => Traversal' v k -> k -> UnionMap k v -> (Maybe (k, IntLikeMap k v), UnionMap k v)
+extract t k0 u =
+  let (m, w) = canonicalize t u
+      n = filterRootEntries (unUnionMap w)
+      mk1 = case ILM.lookup k0 m of
+        Nothing -> k0 <$ ILM.lookup k0 n
+        Just k1 -> Just k1
+      mp = fmap (,n) mk1
+  in  (mp, w)
+
+extractLM
+  :: (Coercible k Int, MonadState s m)
+  => UnionMapLens s k v
+  -> Traversal' v k
+  -> k
+  -> m (Maybe (k, IntLikeMap k v))
+extractLM l t k = stateLens l (extract t k)
+
+extractM
+  :: (Coercible k Int, MonadState (UnionMap k v) m)
+  => Traversal' v k
+  -> k
+  -> m (Maybe (k, IntLikeMap k v))
+extractM = extractLM equality'

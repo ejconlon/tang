@@ -376,10 +376,12 @@ deriving stock instance (Show (f SynthId)) => Show (Synth f)
 enumSynth :: (Alignable e f) => NodeId -> EnumM e f IxEqCon (Synth f)
 enumSynth nid = do
   root <- enumStart nid
-  dag <- stateL unionL $ \u ->
-    let (m, elems') = UM.canonicalize eiSidTrav (unionElems u)
-    in  (UM.filterRootEntries m, u {unionElems = elems'})
-  pure (Synth root dag)
+  mx <- stateL unionL $ \u ->
+    let (mx, elems') = UM.extract eiSidTrav root (unionElems u)
+    in  (mx, u {unionElems = elems'})
+  case mx of
+    Nothing -> error "impossible"
+    Just (root', dag) -> pure (Synth root' dag)
 
 enumStart :: (Alignable e f) => NodeId -> EnumM e f IxEqCon SynthId
 enumStart nid = do
@@ -406,7 +408,7 @@ enumStepGuarded = goGuarded
   goGuarded sid nid = do
     -- Apply self constraints - this may solve fragments and let us avoid suspending
     FragSplit selfIds childFrags <- asks eeFrags
-    mergeClasses selfIds
+    mergeClasses (ILS.insert sid selfIds)
     -- Update environment
     let frags' = FragSplit ILS.empty childFrags
     local (\ee -> ee {eeFrags = frags'}) $ do
@@ -431,7 +433,7 @@ enumStepGuarded = goGuarded
         fs2 <- fmap splitFrags (initFrags (snConstraints sn))
         let FragSplit selfIds childFrags = fs1 <> fs2
         -- Apply self constraints
-        mergeClasses selfIds
+        mergeClasses (ILS.insert sid selfIds)
         -- Apply child equalities
         for_ secs mergeClasses
         -- recurse on child nodes (guarding for unsolved)
