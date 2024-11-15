@@ -29,13 +29,16 @@ library
       Tang.Dot
       Tang.Ecta
       Tang.Enumerate
+      Tang.Exp
       Tang.Render
       Tang.Search
+      Tang.Solver
       Tang.Test
       Tang.Test.Dot
       Tang.Test.Enumerate
       Tang.Test.Ring
       Tang.Test.Search
+      Tang.Test.Solver
       Tang.Test.State
       Tang.Test.Symbolic
       Tang.Test.UnionMap
