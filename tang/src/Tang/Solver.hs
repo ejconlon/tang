@@ -1,12 +1,15 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use <$>" #-}
 module Tang.Solver where
 
 import Control.Exception (Exception, throwIO)
 import Control.Monad ((>=>))
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (ReaderT (..), ask)
+import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), gets)
-import Control.Monad.Trans (lift)
+import Data.Foldable (for_)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
@@ -14,7 +17,18 @@ import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
 import Data.Tuple (swap)
 import Tang.Exp (Exp (..), ExpF (..))
+import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
+import Z3.Opts qualified as ZO
+
+type Params = Map String PVal
+
+data PVal
+  = PVBool !Bool
+  | PVWord !Word
+  | PVDouble !Double
+  | PVString !String
+  deriving stock (Eq, Ord, Show)
 
 data Sym = SymNamed !String | SymAnon
   deriving stock (Eq, Ord, Show)
@@ -28,14 +42,45 @@ data Sort = SortUnint !String | SortBool
 data Decl = Decl ![Sort] !Sort
   deriving stock (Eq, Ord, Show)
 
-data St = St
-  { stNextSym :: !Int
-  , stDecls :: !(Map String Decl)
+data LocalSt = LocalSt
+  { lsNextSym :: !Int
+  , lsDecls :: !(Map String Decl)
   }
   deriving stock (Eq, Ord, Show)
 
-initSt :: St
-initSt = St 0 Map.empty
+initLocalSt :: LocalSt
+initLocalSt = LocalSt 0 Map.empty
+
+-- Hacking around Z3Env private constructor :(
+data RemoteSt = RemoteSt
+  { rsSolver :: !ZB.Solver
+  , rsContext :: !ZB.Context
+  , rsFixedpoint :: !ZB.Fixedpoint
+  , rsOptimize :: !ZB.Optimize
+  }
+
+newRemoteSt :: IO RemoteSt
+newRemoteSt =
+  let mbLogic = Nothing
+      opts = mempty
+  in  ZB.withConfig $ \cfg -> do
+        ZO.setOpts cfg opts
+        ctx <- ZB.mkContext cfg
+        solver <- maybe (ZB.mkSolver ctx) (ZB.mkSolverForLogic ctx) mbLogic
+        fixedpoint <- ZB.mkFixedpoint ctx
+        optimize <- ZB.mkOptimize ctx
+        return (RemoteSt solver ctx fixedpoint optimize)
+
+data SolveSt = St
+  { ssLocal :: !(IORef LocalSt)
+  , ssRemote :: !RemoteSt
+  }
+
+newSolveSt :: (MonadIO m) => m SolveSt
+newSolveSt = liftIO $ do
+  local <- newIORef initLocalSt
+  remote <- newRemoteSt
+  pure (St local remote)
 
 data Err
   = ErrDupeDecl !String
@@ -44,50 +89,69 @@ data Err
 
 instance Exception Err
 
-newtype SolveM a = SolveM {unSolveM :: ReaderT (IORef St) (ExceptT Err Z.Z3) a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError Err, Z.MonadZ3)
+newtype SolveM a = SolveM {unSolveM :: ReaderT SolveSt (ExceptT Err IO) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError Err)
+
+instance Z.MonadZ3 SolveM where
+  getSolver = SolveM (asks (rsSolver . ssRemote))
+  getContext = SolveM (asks (rsContext . ssRemote))
 
 instance Z.MonadFixedpoint SolveM where
-  getFixedpoint = SolveM (lift (lift Z.getFixedpoint))
+  getFixedpoint = SolveM (asks (rsFixedpoint . ssRemote))
 
-instance MonadState St SolveM where
-  get = SolveM (ask >>= liftIO . readIORef)
-  put st = SolveM (ask >>= liftIO . flip writeIORef st)
-  state f = SolveM (ask >>= liftIO . flip atomicModifyIORef' (swap . f))
+instance MonadState LocalSt SolveM where
+  get = SolveM (ask >>= liftIO . readIORef . ssLocal)
+  put st = SolveM (ask >>= liftIO . flip writeIORef st . ssLocal)
+  state f = SolveM (ask >>= liftIO . flip atomicModifyIORef' (swap . f) . ssLocal)
 
-runSolveM :: SolveM a -> St -> Z.Z3 (Either Err a)
-runSolveM m st = liftIO (newIORef st) >>= runExceptT . runReaderT (unSolveM m)
+runSolveM :: SolveM a -> SolveSt -> IO (Either Err a)
+runSolveM m = runExceptT . runReaderT (unSolveM m)
 
-solve :: (MonadIO m) => SolveM a -> m a
-solve m = liftIO (Z.evalZ3 (runSolveM m initSt) >>= either throwIO pure)
+withSolveM :: (MonadIO m) => SolveM a -> m a
+withSolveM m = newSolveSt >>= flip solve m
 
-getM :: (St -> SolveM a) -> SolveM a
+solve :: (MonadIO m) => SolveSt -> SolveM a -> m a
+solve ss m = liftIO (runSolveM m ss >>= either throwIO pure)
+
+getM :: (LocalSt -> SolveM a) -> SolveM a
 getM f = do
-  r <- SolveM ask
+  r <- SolveM (asks ssLocal)
   st0 <- liftIO (readIORef r)
   f st0
 
-stateM :: (St -> SolveM (a, St)) -> SolveM a
+stateM :: (LocalSt -> SolveM (a, LocalSt)) -> SolveM a
 stateM f = do
-  r <- SolveM ask
+  r <- SolveM (asks ssLocal)
   st0 <- liftIO (readIORef r)
   (a, st1) <- f st0
   liftIO (writeIORef r st1)
   pure a
 
-modifyM :: (St -> SolveM St) -> SolveM ()
+modifyM :: (LocalSt -> SolveM LocalSt) -> SolveM ()
 modifyM f = do
-  r <- SolveM ask
+  r <- SolveM (asks ssLocal)
   st0 <- liftIO (readIORef r)
   st1 <- f st0
   liftIO (writeIORef r st1)
 
+mkParams :: Params -> SolveM Z.Params
+mkParams pm = do
+  pz <- Z.mkParams
+  for_ (Map.toList pm) $ \(k, v) -> do
+    k' <- Z.mkStringSymbol k
+    case v of
+      PVBool x -> Z.paramsSetBool pz k' x
+      PVWord x -> Z.paramsSetUInt pz k' x
+      PVDouble x -> Z.paramsSetDouble pz k' x
+      PVString x -> Z.mkStringSymbol x >>= Z.paramsSetSymbol pz k'
+  pure pz
+
 mkSym :: Sym -> SolveM Z.Symbol
 mkSym = \case
   SymNamed n -> Z.mkStringSymbol n
-  SymAnon -> stateM $ \st -> do
-    let i = st.stNextSym
-        st' = st {stNextSym = i + 1}
+  SymAnon -> stateM $ \ls -> do
+    let i = ls.lsNextSym
+        st' = ls {lsNextSym = i + 1}
     x <- Z.mkIntSymbol i
     pure (x, st')
 
@@ -104,7 +168,7 @@ mkDeclSort (Decl args ret) = case args of
 mkExpF :: ExpF Z.AST -> SolveM Z.AST
 mkExpF = \case
   ExpVarF x -> do
-    md <- gets (Map.lookup x . stDecls)
+    md <- gets (Map.lookup x . lsDecls)
     sort' <- case md of
       Nothing -> throwError (ErrMissingDecl x)
       Just d -> mkDeclSort d
@@ -132,17 +196,17 @@ mkFuncDecl name (Decl args ty) = do
   Z.mkFuncDecl name' args' ty'
 
 getDecl :: String -> SolveM Decl
-getDecl name = getM $ \st ->
-  case Map.lookup name st.stDecls of
+getDecl name = getM $ \ls ->
+  case Map.lookup name ls.lsDecls of
     Nothing -> throwError (ErrMissingDecl name)
     Just d -> pure d
 
 setDecl :: String -> Decl -> SolveM ()
-setDecl name decl = modifyM $ \st ->
-  case Map.lookup name st.stDecls of
+setDecl name decl = modifyM $ \ls ->
+  case Map.lookup name ls.lsDecls of
     Nothing ->
-      let decls = Map.insert name decl st.stDecls
-      in  pure st {stDecls = decls}
+      let decls = Map.insert name decl ls.lsDecls
+      in  pure ls {lsDecls = decls}
     Just _ -> throwError (ErrDupeDecl name)
 
 relation :: String -> [Sort] -> Sort -> SolveM ()
@@ -162,3 +226,14 @@ query :: [String] -> SolveM Z.Result
 query names = do
   decls' <- traverse (\name -> getDecl name >>= mkFuncDecl name) names
   Z.fixedpointQueryRelations decls'
+
+params :: Params -> SolveM ()
+params = mkParams >=> Z.fixedpointSetParams
+
+-- TODO convert the returned AST
+
+answer :: SolveM Z.AST
+answer = Z.fixedpointGetAnswer
+
+assertions :: SolveM [Z.AST]
+assertions = Z.fixedpointGetAssertions
