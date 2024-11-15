@@ -44,39 +44,45 @@ data Err
 
 instance Exception Err
 
-newtype M a = M {unM :: ReaderT (IORef St) (ExceptT Err Z.Z3) a}
+newtype SolveM a = SolveM {unSolveM :: ReaderT (IORef St) (ExceptT Err Z.Z3) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError Err, Z.MonadZ3)
 
-instance Z.MonadFixedpoint M where
-  getFixedpoint = M (lift (lift Z.getFixedpoint))
+instance Z.MonadFixedpoint SolveM where
+  getFixedpoint = SolveM (lift (lift Z.getFixedpoint))
 
-instance MonadState St M where
-  get = M (ask >>= liftIO . readIORef)
-  put st = M (ask >>= liftIO . flip writeIORef st)
-  state f = M (ask >>= liftIO . flip atomicModifyIORef' (swap . f))
+instance MonadState St SolveM where
+  get = SolveM (ask >>= liftIO . readIORef)
+  put st = SolveM (ask >>= liftIO . flip writeIORef st)
+  state f = SolveM (ask >>= liftIO . flip atomicModifyIORef' (swap . f))
 
-runM :: M a -> St -> Z.Z3 (Either Err a)
-runM m st = liftIO (newIORef st) >>= runExceptT . runReaderT (unM m)
+runSolveM :: SolveM a -> St -> Z.Z3 (Either Err a)
+runSolveM m st = liftIO (newIORef st) >>= runExceptT . runReaderT (unSolveM m)
 
-evalM :: (MonadIO m) => M a -> m a
-evalM m = liftIO (Z.evalZ3 (runM m initSt) >>= either throwIO pure)
+solve :: (MonadIO m) => SolveM a -> m a
+solve m = liftIO (Z.evalZ3 (runSolveM m initSt) >>= either throwIO pure)
 
-stateM :: (St -> M (a, St)) -> M a
+getM :: (St -> SolveM a) -> SolveM a
+getM f = do
+  r <- SolveM ask
+  st0 <- liftIO (readIORef r)
+  f st0
+
+stateM :: (St -> SolveM (a, St)) -> SolveM a
 stateM f = do
-  r <- M ask
+  r <- SolveM ask
   st0 <- liftIO (readIORef r)
   (a, st1) <- f st0
   liftIO (writeIORef r st1)
   pure a
 
-modifyM :: (St -> M St) -> M ()
+modifyM :: (St -> SolveM St) -> SolveM ()
 modifyM f = do
-  r <- M ask
+  r <- SolveM ask
   st0 <- liftIO (readIORef r)
   st1 <- f st0
   liftIO (writeIORef r st1)
 
-mkSym :: Sym -> M Z.Symbol
+mkSym :: Sym -> SolveM Z.Symbol
 mkSym = \case
   SymNamed n -> Z.mkStringSymbol n
   SymAnon -> stateM $ \st -> do
@@ -85,23 +91,23 @@ mkSym = \case
     x <- Z.mkIntSymbol i
     pure (x, st')
 
-mkSort :: Sort -> M Z.Sort
+mkSort :: Sort -> SolveM Z.Sort
 mkSort = \case
   SortUnint n -> Z.mkStringSymbol n >>= Z.mkUninterpretedSort
   SortBool -> Z.mkBoolSort
 
-mkDecl :: Decl -> M Z.Sort
-mkDecl (Decl args ret) = case args of
+mkDeclSort :: Decl -> SolveM Z.Sort
+mkDeclSort (Decl args ret) = case args of
   [] -> mkSort ret
   _ -> error "TODO"
 
-mkExpF :: ExpF Z.AST -> M Z.AST
+mkExpF :: ExpF Z.AST -> SolveM Z.AST
 mkExpF = \case
   ExpVarF x -> do
     md <- gets (Map.lookup x . stDecls)
     sort' <- case md of
       Nothing -> throwError (ErrMissingDecl x)
-      Just d -> mkDecl d
+      Just d -> mkDeclSort d
     sym' <- mkSym (SymNamed x)
     Z.mkVar sym' sort'
   ExpBoolF x -> Z.mkBool x
@@ -115,25 +121,44 @@ mkExpF = \case
   ExpOrF xs -> Z.mkOr xs
   ExpDistinctF xs -> Z.mkDistinct xs
 
-mkExp :: Exp -> M Z.AST
+mkExp :: Exp -> SolveM Z.AST
 mkExp = cata (sequence >=> mkExpF)
 
-declareRel :: String -> [Sort] -> Sort -> M ()
-declareRel name args ty = do
+mkFuncDecl :: String -> Decl -> SolveM Z.FuncDecl
+mkFuncDecl name (Decl args ty) = do
   name' <- mkSym (SymNamed name)
   args' <- traverse mkSort args
   ty' <- mkSort ty
-  fd <- Z.mkFuncDecl name' args' ty'
-  modifyM $ \st ->
-    case Map.lookup name st.stDecls of
-      Nothing ->
-        let decls = Map.insert name (Decl args ty) st.stDecls
-        in  pure st {stDecls = decls}
-      Just _ -> throwError (ErrDupeDecl name)
-  Z.fixedpointRegisterRelation fd
+  Z.mkFuncDecl name' args' ty'
 
-rule :: Exp -> M ()
+getDecl :: String -> SolveM Decl
+getDecl name = getM $ \st ->
+  case Map.lookup name st.stDecls of
+    Nothing -> throwError (ErrMissingDecl name)
+    Just d -> pure d
+
+setDecl :: String -> Decl -> SolveM ()
+setDecl name decl = modifyM $ \st ->
+  case Map.lookup name st.stDecls of
+    Nothing ->
+      let decls = Map.insert name decl st.stDecls
+      in  pure st {stDecls = decls}
+    Just _ -> throwError (ErrDupeDecl name)
+
+relation :: String -> [Sort] -> Sort -> SolveM ()
+relation name args ty = do
+  let decl = Decl args ty
+  decl' <- mkFuncDecl name decl
+  Z.fixedpointRegisterRelation decl'
+  setDecl name decl
+
+rule :: Exp -> SolveM ()
 rule e = do
   e' <- mkExp e
   s' <- mkSym SymAnon
   Z.fixedpointAddRule e' s'
+
+query :: [String] -> SolveM Z.Result
+query names = do
+  decls' <- traverse (\name -> getDecl name >>= mkFuncDecl name) names
+  Z.fixedpointQueryRelations decls'

@@ -67,10 +67,10 @@ mkSynthCase name results graph =
           Right as -> do
             let expected = Set.fromList results
                 actual = Set.fromList (fmap synthText as)
-            liftIO $ do
-              putStr "graphs:   " >> print as
-              putStr "expected: " >> print expected
-              putStr "actual:   " >> print actual
+            -- liftIO $ do
+            --   putStr "graphs:   " >> print as
+            --   putStr "expected: " >> print expected
+            --   putStr "actual:   " >> print actual
             expected === actual
 
 enumCases :: [EnumCase]
