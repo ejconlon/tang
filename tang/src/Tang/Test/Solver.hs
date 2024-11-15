@@ -12,6 +12,7 @@ testSolver =
   testGroup
     "solver"
     [ testRules1
+    , testRules2
     ]
 
 exampleRules1 :: SolveM ()
@@ -37,3 +38,12 @@ testRules1 = testUnit "rules1" $ do
   ans === ExpBool True
   ass <- solve ss assertions
   ass === []
+
+exampleRules2 :: SolveM ()
+exampleRules2 = do
+  pure ()
+
+testRules2 :: TestTree
+testRules2 = testUnit "rules2" $ do
+  ss <- newSolveSt
+  solve ss exampleRules2

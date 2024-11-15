@@ -1,6 +1,3 @@
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
-{-# HLINT ignore "Use <$>" #-}
 module Tang.Solver where
 
 import Control.Exception (Exception, throwIO)
@@ -79,8 +76,7 @@ data SolveSt = St
 newSolveSt :: (MonadIO m) => m SolveSt
 newSolveSt = liftIO $ do
   local <- newIORef initLocalSt
-  remote <- newRemoteSt
-  pure (St local remote)
+  fmap (St local) newRemoteSt
 
 data Err
   = ErrDupeDecl !String
