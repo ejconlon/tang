@@ -85,6 +85,7 @@ newSolveSt = liftIO $ do
 data Err
   = ErrDupeDecl !String
   | ErrMissingDecl !String
+  | ErrReflect !String
   deriving stock (Eq, Ord, Show)
 
 instance Exception Err
@@ -184,6 +185,31 @@ mkExpF = \case
   ExpAndF xs -> Z.mkAnd xs
   ExpOrF xs -> Z.mkOr xs
   ExpDistinctF xs -> Z.mkDistinct xs
+  ExpAppF x y -> do
+    md <- gets (Map.lookup x . lsDecls)
+    decl' <- case md of
+      Nothing -> throwError (ErrMissingDecl x)
+      Just d -> mkFuncDecl x d
+    Z.mkApp decl' y
+
+reflect :: Z.AST -> SolveM Exp
+reflect t = do
+  k <- Z.getAstKind t
+  case k of
+    Z.Z3_APP_AST -> do
+      app' <- Z.toApp t
+      decl' <- Z.getAppDecl app'
+      name' <- Z.getDeclName decl'
+      name <- Z.getSymbolString name'
+      args' <- Z.getAppArgs app'
+      args <- traverse reflect args'
+      pure $ case name of
+        "and" -> ExpAnd args
+        "or" -> ExpOr args
+        "true" -> ExpBool True
+        "false" -> ExpBool False
+        _ -> ExpApp name args
+    _ -> throwError (ErrReflect (show k))
 
 mkExp :: Exp -> SolveM Z.AST
 mkExp = cata (sequence >=> mkExpF)
@@ -230,10 +256,10 @@ query names = do
 params :: Params -> SolveM ()
 params = mkParams >=> Z.fixedpointSetParams
 
--- TODO convert the returned AST
+-- NOTE might only be valid after query, otherwise error
+answer :: SolveM Exp
+answer = Z.fixedpointGetAnswer >>= reflect
 
-answer :: SolveM Z.AST
-answer = Z.fixedpointGetAnswer
-
-assertions :: SolveM [Z.AST]
-assertions = Z.fixedpointGetAssertions
+-- NOTE might only be valid after query, otherwise err
+assertions :: SolveM [Exp]
+assertions = Z.fixedpointGetAssertions >>= traverse reflect

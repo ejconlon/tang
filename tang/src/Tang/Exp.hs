@@ -17,6 +17,7 @@ data Exp
   | ExpAnd ![Exp]
   | ExpOr ![Exp]
   | ExpDistinct ![Exp]
+  | ExpApp !String ![Exp]
   deriving stock (Eq, Ord, Show)
 
 instance IsString Exp where
