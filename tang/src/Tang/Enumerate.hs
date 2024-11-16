@@ -154,8 +154,7 @@ initEnumSt :: NodeGraph f c -> EnumSt f c
 initEnumSt ng = EnumSt ng initUnion ILM.empty ILS.empty
 
 data EnumErr e
-  = EnumErrUnsolved
-  | EnumErrNodeMissing !IxPath !NodeId
+  = EnumErrNodeMissing !IxPath !NodeId
   | EnumErrMerge !IxPath !SynthId !SynthId !e
   | EnumErrAlign !IxPath !NodeId !e
   deriving stock (Eq, Ord, Show)
@@ -164,7 +163,6 @@ instance (Show e, Typeable e) => Exception (EnumErr e)
 
 erNotable :: EnumErr e -> Bool
 erNotable = \case
-  EnumErrUnsolved -> True
   EnumErrNodeMissing {} -> True
   EnumErrMerge {} -> False
   EnumErrAlign {} -> False
@@ -396,11 +394,19 @@ enumLoop = goStart
     susp <- state (\es -> (es.esSuspended, es {esSuspended = ILM.empty}))
     unless (ILM.null susp) (goLoop False (ILM.toList susp))
   goLoop !progress = \case
-    [] -> if progress then goStart else throwError EnumErrUnsolved
+    [] -> if progress then goStart else goNext
     (nid, Susp sid env) : rest -> do
       (_, stepProgress) <- local (const env) $ do
         enumStepGuarded sid nid
       goLoop (progress || stepProgress) rest
+  goNext = do
+    mnext <-
+      state (\es -> maybe (Nothing, es) (\(n, s) -> (Just n, es {esSuspended = s})) (ILM.minViewWithKey es.esSuspended))
+    case mnext of
+      Nothing -> pure ()
+      Just (nid, Susp sid env) -> do
+        _ <- local (const env) (enumStepGuarded sid nid)
+        goStart
 
 enumStepGuarded :: (Alignable e f) => SynthId -> NodeId -> EnumM e f IxEqCon (SynthId, Bool)
 enumStepGuarded = goGuarded

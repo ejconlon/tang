@@ -5,7 +5,7 @@ import Control.Monad ((>=>))
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
-import Control.Monad.State.Strict (MonadState (..), gets)
+import Control.Monad.State.Strict (MonadState (..))
 import Data.Foldable (for_)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -13,7 +13,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
 import Data.Tuple (swap)
-import Tang.Exp (Exp (..), ExpF (..))
+import Tang.Exp (Decl (..), Tm (..), TmDecl (..), TmF (..), Ty (..), TyDecl (..))
 import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
 import Z3.Opts qualified as ZO
@@ -32,12 +32,6 @@ data Sym = SymNamed !String | SymAnon
 
 instance IsString Sym where
   fromString = SymNamed
-
-data Sort = SortUnint !String | SortBool
-  deriving stock (Eq, Ord, Show)
-
-data Decl = Decl ![Sort] !Sort
-  deriving stock (Eq, Ord, Show)
 
 data LocalSt = LocalSt
   { lsNextSym :: !Int
@@ -81,7 +75,10 @@ newSolveSt = liftIO $ do
 data Err
   = ErrDupeDecl !String
   | ErrMissingDecl !String
+  | ErrNotTm !String
+  | ErrNotTy !String
   | ErrReflect !String
+  | ErrArityMismatch !String !Int !Int
   deriving stock (Eq, Ord, Show)
 
 instance Exception Err
@@ -131,6 +128,34 @@ modifyM f = do
   st1 <- f st0
   liftIO (writeIORef r st1)
 
+getDecl :: String -> SolveM Decl
+getDecl name = getM $ \ls ->
+  case Map.lookup name ls.lsDecls of
+    Nothing -> throwError (ErrMissingDecl name)
+    Just d -> pure d
+
+getTmDecl :: String -> SolveM TmDecl
+getTmDecl name = do
+  d <- getDecl name
+  case d of
+    DeclTy _ -> throwError (ErrNotTm name)
+    DeclTm tmd -> pure tmd
+
+getTyDecl :: String -> SolveM TyDecl
+getTyDecl name = do
+  d <- getDecl name
+  case d of
+    DeclTm _ -> throwError (ErrNotTy name)
+    DeclTy tyd -> pure tyd
+
+setDecl :: String -> Decl -> SolveM ()
+setDecl name d = modifyM $ \ls ->
+  case Map.lookup name ls.lsDecls of
+    Nothing ->
+      let decls = Map.insert name d ls.lsDecls
+      in  pure ls {lsDecls = decls}
+    Just _ -> throwError (ErrDupeDecl name)
+
 mkParams :: Params -> SolveM Z.Params
 mkParams pm = do
   pz <- Z.mkParams
@@ -152,43 +177,56 @@ mkSym = \case
     x <- Z.mkIntSymbol i
     pure (x, st')
 
-mkSort :: Sort -> SolveM Z.Sort
+mkSort :: Ty -> SolveM Z.Sort
 mkSort = \case
-  SortUnint n -> Z.mkStringSymbol n >>= Z.mkUninterpretedSort
-  SortBool -> Z.mkBoolSort
+  TyVar n -> do
+    TyDecl mty <- getTyDecl n
+    case mty of
+      Nothing -> Z.mkStringSymbol n >>= Z.mkUninterpretedSort
+      Just ty -> mkSort ty
+  TyBool -> Z.mkBoolSort
+  TyBv i -> Z.mkBvSort i
 
-mkDeclSort :: Decl -> SolveM Z.Sort
-mkDeclSort (Decl args ret) = case args of
-  [] -> mkSort ret
-  _ -> error "TODO"
+mkFuncDecl :: String -> TmDecl -> SolveM Z.FuncDecl
+mkFuncDecl name (TmDecl args ret) = do
+  name' <- Z.mkStringSymbol name
+  args' <- traverse mkSort args
+  ret' <- mkSort ret
+  Z.mkFuncDecl name' args' ret'
 
-mkExpF :: ExpF Z.AST -> SolveM Z.AST
-mkExpF = \case
-  ExpVarF x -> do
-    md <- gets (Map.lookup x . lsDecls)
-    sort' <- case md of
-      Nothing -> throwError (ErrMissingDecl x)
-      Just d -> mkDeclSort d
-    sym' <- mkSym (SymNamed x)
-    Z.mkVar sym' sort'
-  ExpBoolF x -> Z.mkBool x
-  ExpEqF x y -> Z.mkEq x y
-  ExpNotF x -> Z.mkNot x
-  ExpIteF x y z -> Z.mkIte x y z
-  ExpIffF x y -> Z.mkIff x y
-  ExpImpliesF x y -> Z.mkImplies x y
-  ExpXorF x y -> Z.mkXor x y
-  ExpAndF xs -> Z.mkAnd xs
-  ExpOrF xs -> Z.mkOr xs
-  ExpDistinctF xs -> Z.mkDistinct xs
-  ExpAppF x y -> do
-    md <- gets (Map.lookup x . lsDecls)
-    decl' <- case md of
-      Nothing -> throwError (ErrMissingDecl x)
-      Just d -> mkFuncDecl x d
-    Z.mkApp decl' y
+mkTmF :: TmF Z.AST -> SolveM Z.AST
+mkTmF = \case
+  TmVarF x -> do
+    tmd@(TmDecl args _) <- getTmDecl x
+    case args of
+      [] -> do
+        fd' <- mkFuncDecl x tmd
+        Z.mkApp fd' []
+      _ -> throwError (ErrArityMismatch x (length args) 0)
+  TmBoolF x -> Z.mkBool x
+  TmEqF x y -> Z.mkEq x y
+  TmNotF x -> Z.mkNot x
+  TmIteF x y z -> Z.mkIte x y z
+  TmIffF x y -> Z.mkIff x y
+  TmImpliesF x y -> Z.mkImplies x y
+  TmXorF x y -> Z.mkXor x y
+  TmAndF xs -> Z.mkAnd xs
+  TmOrF xs -> Z.mkOr xs
+  TmDistinctF xs -> Z.mkDistinct xs
+  TmAppF x y -> do
+    tmd@(TmDecl args _) <- getTmDecl x
+    let actualAr = length args
+        expectedAr = length y
+    if actualAr == expectedAr
+      then do
+        fd' <- mkFuncDecl x tmd
+        Z.mkApp fd' y
+      else throwError (ErrArityMismatch x actualAr expectedAr)
 
-reflect :: Z.AST -> SolveM Exp
+mkTm :: Tm -> SolveM Z.AST
+mkTm = cata (sequence >=> mkTmF)
+
+reflect :: Z.AST -> SolveM Tm
 reflect t = do
   k <- Z.getAstKind t
   case k of
@@ -200,62 +238,40 @@ reflect t = do
       args' <- Z.getAppArgs app'
       args <- traverse reflect args'
       pure $ case name of
-        "and" -> ExpAnd args
-        "or" -> ExpOr args
-        "true" -> ExpBool True
-        "false" -> ExpBool False
-        _ -> ExpApp name args
+        "and" -> TmAnd args
+        "or" -> TmOr args
+        "true" -> TmBool True
+        "false" -> TmBool False
+        _ -> case args of
+          [] -> TmVar name
+          _ -> TmApp name args
     _ -> throwError (ErrReflect (show k))
 
-mkExp :: Exp -> SolveM Z.AST
-mkExp = cata (sequence >=> mkExpF)
+relation :: String -> [Ty] -> Ty -> SolveM ()
+relation name args ret = do
+  let tmd = TmDecl args ret
+  decl <- mkFuncDecl name tmd
+  Z.fixedpointRegisterRelation decl
+  setDecl name (DeclTm tmd)
 
-mkFuncDecl :: String -> Decl -> SolveM Z.FuncDecl
-mkFuncDecl name (Decl args ty) = do
-  name' <- mkSym (SymNamed name)
-  args' <- traverse mkSort args
-  ty' <- mkSort ty
-  Z.mkFuncDecl name' args' ty'
-
-getDecl :: String -> SolveM Decl
-getDecl name = getM $ \ls ->
-  case Map.lookup name ls.lsDecls of
-    Nothing -> throwError (ErrMissingDecl name)
-    Just d -> pure d
-
-setDecl :: String -> Decl -> SolveM ()
-setDecl name decl = modifyM $ \ls ->
-  case Map.lookup name ls.lsDecls of
-    Nothing ->
-      let decls = Map.insert name decl ls.lsDecls
-      in  pure ls {lsDecls = decls}
-    Just _ -> throwError (ErrDupeDecl name)
-
-relation :: String -> [Sort] -> Sort -> SolveM ()
-relation name args ty = do
-  let decl = Decl args ty
-  decl' <- mkFuncDecl name decl
-  Z.fixedpointRegisterRelation decl'
-  setDecl name decl
-
-rule :: Exp -> SolveM ()
+rule :: Tm -> SolveM ()
 rule e = do
-  e' <- mkExp e
+  e' <- mkTm e
   s' <- mkSym SymAnon
   Z.fixedpointAddRule e' s'
 
 query :: [String] -> SolveM Z.Result
 query names = do
-  decls' <- traverse (\name -> getDecl name >>= mkFuncDecl name) names
+  decls' <- traverse (\n -> getTmDecl n >>= mkFuncDecl n) names
   Z.fixedpointQueryRelations decls'
 
 params :: Params -> SolveM ()
 params = mkParams >=> Z.fixedpointSetParams
 
 -- NOTE might only be valid after query, otherwise error
-answer :: SolveM Exp
+answer :: SolveM Tm
 answer = Z.fixedpointGetAnswer >>= reflect
 
 -- NOTE might only be valid after query, otherwise err
-assertions :: SolveM [Exp]
+assertions :: SolveM [Tm]
 assertions = Z.fixedpointGetAssertions >>= traverse reflect
