@@ -36,12 +36,12 @@ instance IsString Ty where
 
 makeBaseFunctor ''Ty
 
-data TmDecl = TmDecl ![Ty] !Ty
+data TmDef = TmDef ![Ty] !Ty
   deriving stock (Eq, Ord, Show)
 
 -- Nothing means uninterpreted
-newtype TyDecl = TyDecl (Maybe Ty)
+newtype TyDef = TyDef (Maybe Ty)
   deriving stock (Eq, Ord, Show)
 
-data Decl = DeclTm !TmDecl | DeclTy !TyDecl
+data Def = DefTm !TmDef | DefTy !TyDef
   deriving stock (Eq, Ord, Show)

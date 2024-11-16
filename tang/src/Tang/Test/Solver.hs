@@ -4,7 +4,7 @@ module Tang.Test.Solver where
 
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..))
-import Tang.Solver (SolveM, answer, assertions, newSolveSt, query, relation, rule, solve)
+import Tang.Solver (SolveM, answer, assertions, defRel, defRule, newSolveSt, query, solve)
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -17,11 +17,11 @@ testSolver =
 
 exampleRules1 :: SolveM ()
 exampleRules1 = do
-  relation "a" [] TyBool
-  relation "b" [] TyBool
-  relation "c" [] TyBool
-  rule (TmImplies "b" "a")
-  rule (TmImplies "c" "b")
+  defRel "a" [] TyBool
+  defRel "b" [] TyBool
+  defRel "c" [] TyBool
+  defRule (TmImplies "b" "a")
+  defRule (TmImplies "c" "b")
 
 testRules1 :: TestTree
 testRules1 = testUnit "rules1" $ do
@@ -31,7 +31,7 @@ testRules1 = testUnit "rules1" $ do
     query ["a"]
   resBefore === Z.Unsat
   resAfter <- solve ss $ do
-    rule "c"
+    defRule "c"
     query ["a"]
   resAfter === Z.Sat
   ans <- solve ss answer
