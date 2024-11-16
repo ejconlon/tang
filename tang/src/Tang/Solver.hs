@@ -79,6 +79,7 @@ data Err
   | ErrNotTy !String
   | ErrReflect !String
   | ErrArityMismatch !String !Int !Int
+  | ErrNotIntTy !Ty
   deriving stock (Eq, Ord, Show)
 
 instance Exception Err
@@ -187,6 +188,13 @@ mkSort = \case
   TyBool -> Z.mkBoolSort
   TyBv i -> Z.mkBvSort i
 
+mkIntSort :: Ty -> SolveM Z.Sort
+mkIntSort ty = do
+  case ty of
+    TyBv _ -> pure ()
+    _ -> throwError (ErrNotIntTy ty)
+  mkSort ty
+
 mkFuncDecl :: String -> TmDef -> SolveM Z.FuncDecl
 mkFuncDecl name (TmDef args ret) = do
   name' <- Z.mkStringSymbol name
@@ -204,6 +212,9 @@ mkTmF = \case
         Z.mkApp fd' []
       _ -> throwError (ErrArityMismatch x (length args) 0)
   TmBoolF x -> Z.mkBool x
+  TmIntF ty x -> do
+    sort' <- mkIntSort ty
+    Z.mkInt x sort'
   TmEqF x y -> Z.mkEq x y
   TmNotF x -> Z.mkNot x
   TmIteF x y z -> Z.mkIte x y z
@@ -248,17 +259,22 @@ reflect t = do
     _ -> throwError (ErrReflect (show k))
 
 defConst :: String -> Ty -> SolveM ()
-defConst name ty = setDef name (DefTm (TmDef [] ty))
+defConst name ty = do
+  -- sym' <- Z.mkStringSymbol name
+  -- sort' <- mkSort ty
+  -- _ <- Z.mkConst sym' sort'
+  setDef name (DefTm (TmDef [] ty))
 
 defFun :: String -> [Ty] -> Ty -> SolveM ()
-defFun name args ret = setDef name (DefTm (TmDef args ret))
+defFun name args ret = do
+  setDef name (DefTm (TmDef args ret))
 
 defTy :: String -> Maybe Ty -> SolveM ()
 defTy name mty = setDef name (DefTy (TyDef mty))
 
-defRel :: String -> [Ty] -> Ty -> SolveM ()
-defRel name args ret = do
-  let tmd = TmDef args ret
+defRel :: String -> [Ty] -> SolveM ()
+defRel name args = do
+  let tmd = TmDef args TyBool
   def <- mkFuncDecl name tmd
   Z.fixedpointRegisterRelation def
   setDef name (DefTm tmd)

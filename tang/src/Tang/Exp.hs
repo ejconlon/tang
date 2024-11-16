@@ -5,9 +5,21 @@ module Tang.Exp where
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.String (IsString (..))
 
+data Ty
+  = TyVar !String
+  | TyBool
+  | TyBv !Int
+  deriving stock (Eq, Ord, Show)
+
+instance IsString Ty where
+  fromString = TyVar
+
+makeBaseFunctor ''Ty
+
 data Tm
   = TmVar !String
   | TmBool !Bool
+  | TmInt !Ty !Int
   | TmEq Tm Tm
   | TmNot Tm
   | TmIte Tm Tm Tm
@@ -25,16 +37,8 @@ instance IsString Tm where
 
 makeBaseFunctor ''Tm
 
-data Ty
-  = TyVar !String
-  | TyBool
-  | TyBv !Int
-  deriving stock (Eq, Ord, Show)
-
-instance IsString Ty where
-  fromString = TyVar
-
-makeBaseFunctor ''Ty
+tmBv :: Int -> Int -> Tm
+tmBv = TmInt . TyBv
 
 data TmDef = TmDef ![Ty] !Ty
   deriving stock (Eq, Ord, Show)
