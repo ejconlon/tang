@@ -7,11 +7,13 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
-import Data.Foldable (for_)
+import Data.Foldable (for_, toList)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Tuple (swap)
 import Tang.Exp (Tm (..), TmF (..), Ty (..))
@@ -317,14 +319,14 @@ defRel name args = do
   Z.fixedpointRegisterRelation fd'
   setDef name (ZDefTm (ZTmDef tmd fd'))
 
-gatherVars :: Tm -> SolveM (Map String Ty)
-gatherVars tm0 = execStateT (cata go tm0) Map.empty
+gatherVars :: Tm -> SolveM (Set String)
+gatherVars tm0 = execStateT (cata go tm0) Set.empty
  where
   go tm = case tm of
     TmVarF x -> do
-      (ZTmDef (TmDef role _ ty) _) <- lift (getTm x)
+      (ZTmDef (TmDef role _ _) _) <- lift (getTm x)
       case role of
-        RoleVar -> modify' (Map.insert x ty)
+        RoleVar -> modify' (Set.insert x)
         _ -> pure ()
     _ -> sequence_ tm
 
@@ -333,10 +335,10 @@ defRule e = do
   vars <- gatherVars e
   e' <- mkTm e
   q' <-
-    if Map.null vars
+    if Set.null vars
       then pure e'
       else do
-        apps' <- traverse (mkTm . TmVar >=> Z.toApp) (Map.keys vars)
+        apps' <- traverse (mkTm . TmVar >=> Z.toApp) (toList vars)
         Z.mkForallConst [] apps' e'
   s' <- mkSym SymAnon
   Z.fixedpointAddRule q' s'
