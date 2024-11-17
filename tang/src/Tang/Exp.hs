@@ -47,5 +47,5 @@ data TmDef = TmDef ![Ty] !Ty
 newtype TyDef = TyDef (Maybe Ty)
   deriving stock (Eq, Ord, Show)
 
-data Def = DefTm !TmDef | DefTy !TyDef
-  deriving stock (Eq, Ord, Show)
+-- data Def = DefTm !TmDef | DefTy !TyDef
+--   deriving stock (Eq, Ord, Show)

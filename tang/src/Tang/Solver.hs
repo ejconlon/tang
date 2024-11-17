@@ -5,7 +5,8 @@ import Control.Monad ((>=>))
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
-import Control.Monad.State.Strict (MonadState (..))
+import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
+import Control.Monad.Trans (lift)
 import Data.Foldable (for_)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -13,7 +14,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
 import Data.Tuple (swap)
-import Tang.Exp (Def (..), Tm (..), TmDef (..), TmF (..), Ty (..), TyDef (..))
+import Tang.Exp (Tm (..), TmF (..), Ty (..))
 import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
 import Z3.Opts qualified as ZO
@@ -33,9 +34,30 @@ data Sym = SymNamed !String | SymAnon
 instance IsString Sym where
   fromString = SymNamed
 
+data Role = RoleUninterp | RoleVar | RoleRel
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+data TmDef = TmDef !Role ![Ty] !Ty
+  deriving stock (Eq, Ord, Show)
+
+-- Nothing means uninterpreted
+newtype TyDef = TyDef (Maybe Ty)
+  deriving stock (Eq, Ord, Show)
+
+data ZTmDef = ZTmDef !TmDef !Z.FuncDecl
+  deriving stock (Eq, Ord, Show)
+
+data ZTyDef = ZTyDef !TyDef !Z.Sort
+  deriving stock (Eq, Ord, Show)
+
+data ZDef
+  = ZDefTm !ZTmDef
+  | ZDefTy !ZTyDef
+  deriving stock (Eq, Ord, Show)
+
 data LocalSt = LocalSt
   { lsNextSym :: !Int
-  , lsDefs :: !(Map String Def)
+  , lsDefs :: !(Map String ZDef)
   }
   deriving stock (Eq, Ord, Show)
 
@@ -77,6 +99,7 @@ data Err
   | ErrMissingDef !String
   | ErrNotTm !String
   | ErrNotTy !String
+  | ErrNotVar !String
   | ErrReflect !String
   | ErrArityMismatch !String !Int !Int
   | ErrNotIntTy !Ty
@@ -129,27 +152,39 @@ modifyM f = do
   st1 <- f st0
   liftIO (writeIORef r st1)
 
-getDef :: String -> SolveM Def
-getDef name = getM $ \ls ->
-  case Map.lookup name ls.lsDefs of
+lookupDef :: String -> SolveM (Maybe ZDef)
+lookupDef name = gets (Map.lookup name . lsDefs)
+
+getDef :: String -> SolveM ZDef
+getDef name = do
+  md <- lookupDef name
+  case md of
     Nothing -> throwError (ErrMissingDef name)
     Just d -> pure d
 
-getTmDef :: String -> SolveM TmDef
-getTmDef name = do
-  d <- getDef name
-  case d of
-    DefTy _ -> throwError (ErrNotTm name)
-    DefTm tmd -> pure tmd
+projectTm :: String -> ZDef -> SolveM ZTmDef
+projectTm name = \case
+  ZDefTm z -> pure z
+  _ -> throwError (ErrNotTm name)
 
-getTyDef :: String -> SolveM TyDef
-getTyDef name = do
-  d <- getDef name
-  case d of
-    DefTm _ -> throwError (ErrNotTy name)
-    DefTy tyd -> pure tyd
+projectTy :: String -> ZDef -> SolveM ZTyDef
+projectTy name = \case
+  ZDefTy z -> pure z
+  _ -> throwError (ErrNotTm name)
 
-setDef :: String -> Def -> SolveM ()
+lookupTm :: String -> SolveM (Maybe ZTmDef)
+lookupTm name = lookupDef name >>= traverse (projectTm name)
+
+getTm :: String -> SolveM ZTmDef
+getTm name = getDef name >>= projectTm name
+
+lookupTy :: String -> SolveM (Maybe ZTyDef)
+lookupTy name = lookupDef name >>= traverse (projectTy name)
+
+getTy :: String -> SolveM ZTyDef
+getTy name = getDef name >>= projectTy name
+
+setDef :: String -> ZDef -> SolveM ()
 setDef name d = modifyM $ \ls ->
   case Map.lookup name ls.lsDefs of
     Nothing ->
@@ -178,38 +213,37 @@ mkSym = \case
     x <- Z.mkIntSymbol i
     pure (x, st')
 
-mkSort :: Ty -> SolveM Z.Sort
-mkSort = \case
-  TyVar n -> do
-    TyDef mty <- getTyDef n
-    case mty of
-      Nothing -> Z.mkStringSymbol n >>= Z.mkUninterpretedSort
-      Just ty -> mkSort ty
+getSort :: Ty -> SolveM Z.Sort
+getSort = \case
+  TyVar n -> fmap (\(ZTyDef _ z) -> z) (getTy n)
   TyBool -> Z.mkBoolSort
   TyBv i -> Z.mkBvSort i
+
+getOrCreateSort :: String -> Maybe Ty -> SolveM Z.Sort
+getOrCreateSort name = \case
+  Nothing -> Z.mkStringSymbol name >>= Z.mkUninterpretedSort
+  Just ty -> getSort ty
 
 mkIntSort :: Ty -> SolveM Z.Sort
 mkIntSort ty = do
   case ty of
     TyBv _ -> pure ()
     _ -> throwError (ErrNotIntTy ty)
-  mkSort ty
+  getSort ty
 
 mkFuncDecl :: String -> TmDef -> SolveM Z.FuncDecl
-mkFuncDecl name (TmDef args ret) = do
+mkFuncDecl name (TmDef _ args ret) = do
   name' <- Z.mkStringSymbol name
-  args' <- traverse mkSort args
-  ret' <- mkSort ret
+  args' <- traverse getSort args
+  ret' <- getSort ret
   Z.mkFuncDecl name' args' ret'
 
 mkTmF :: TmF Z.AST -> SolveM Z.AST
 mkTmF = \case
   TmVarF x -> do
-    tmd@(TmDef args _) <- getTmDef x
+    ZTmDef (TmDef _ args _) fd' <- getTm x
     case args of
-      [] -> do
-        fd' <- mkFuncDecl x tmd
-        Z.mkApp fd' []
+      [] -> Z.mkApp fd' []
       _ -> throwError (ErrArityMismatch x (length args) 0)
   TmBoolF x -> Z.mkBool x
   TmIntF ty x -> do
@@ -225,13 +259,11 @@ mkTmF = \case
   TmOrF xs -> Z.mkOr xs
   TmDistinctF xs -> Z.mkDistinct xs
   TmAppF x y -> do
-    tmd@(TmDef args _) <- getTmDef x
+    ZTmDef (TmDef _ args _) fd' <- getTm x
     let actualAr = length args
         expectedAr = length y
     if actualAr == expectedAr
-      then do
-        fd' <- mkFuncDecl x tmd
-        Z.mkApp fd' y
+      then Z.mkApp fd' y
       else throwError (ErrArityMismatch x actualAr expectedAr)
 
 mkTm :: Tm -> SolveM Z.AST
@@ -258,36 +290,60 @@ reflect t = do
           _ -> TmApp name args
     _ -> throwError (ErrReflect (show k))
 
+defVar :: String -> Ty -> SolveM ()
+defVar name = defFun' RoleVar name []
+
 defConst :: String -> Ty -> SolveM ()
-defConst name ty = do
-  -- sym' <- Z.mkStringSymbol name
-  -- sort' <- mkSort ty
-  -- _ <- Z.mkConst sym' sort'
-  setDef name (DefTm (TmDef [] ty))
+defConst name = defFun name []
 
 defFun :: String -> [Ty] -> Ty -> SolveM ()
-defFun name args ret = do
-  setDef name (DefTm (TmDef args ret))
+defFun = defFun' RoleUninterp
+
+defFun' :: Role -> String -> [Ty] -> Ty -> SolveM ()
+defFun' role name args ret = do
+  let tmd = TmDef role args ret
+  fd' <- mkFuncDecl name tmd
+  setDef name (ZDefTm (ZTmDef tmd fd'))
 
 defTy :: String -> Maybe Ty -> SolveM ()
-defTy name mty = setDef name (DefTy (TyDef mty))
+defTy name mty = do
+  sort' <- getOrCreateSort name mty
+  setDef name (ZDefTy (ZTyDef (TyDef mty) sort'))
 
 defRel :: String -> [Ty] -> SolveM ()
 defRel name args = do
-  let tmd = TmDef args TyBool
-  def <- mkFuncDecl name tmd
-  Z.fixedpointRegisterRelation def
-  setDef name (DefTm tmd)
+  let tmd = TmDef RoleRel args TyBool
+  fd' <- mkFuncDecl name tmd
+  Z.fixedpointRegisterRelation fd'
+  setDef name (ZDefTm (ZTmDef tmd fd'))
+
+gatherVars :: Tm -> SolveM (Map String Ty)
+gatherVars tm0 = execStateT (cata go tm0) Map.empty
+ where
+  go tm = case tm of
+    TmVarF x -> do
+      (ZTmDef (TmDef role _ ty) _) <- lift (getTm x)
+      case role of
+        RoleVar -> modify' (Map.insert x ty)
+        _ -> pure ()
+    _ -> sequence_ tm
 
 defRule :: Tm -> SolveM ()
 defRule e = do
+  vars <- gatherVars e
   e' <- mkTm e
+  q' <-
+    if Map.null vars
+      then pure e'
+      else do
+        apps' <- traverse (mkTm . TmVar >=> Z.toApp) (Map.keys vars)
+        Z.mkForallConst [] apps' e'
   s' <- mkSym SymAnon
-  Z.fixedpointAddRule e' s'
+  Z.fixedpointAddRule q' s'
 
 query :: [String] -> SolveM Z.Result
 query names = do
-  decls' <- traverse (\n -> getTmDef n >>= mkFuncDecl n) names
+  decls' <- traverse (fmap (\(ZTmDef _ z) -> z) . getTm) names
   Z.fixedpointQueryRelations decls'
 
 params :: Params -> SolveM ()

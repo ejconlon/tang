@@ -2,10 +2,9 @@
 
 module Tang.Test.Solver where
 
-import Control.Monad.IO.Class (liftIO)
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (SolveM, answer, assertions, defConst, defRel, defRule, defTy, newSolveSt, query, solve)
+import Tang.Solver (SolveM, answer, assertions, defRel, defRule, defTy, defVar, newSolveSt, query, solve)
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -49,12 +48,14 @@ exampleRules2 = do
   defRel "edge" ["s", "s"]
   -- (declare-rel path (s s))
   defRel "path" ["s", "s"]
+  -- TODO actually declare these as vars not uninterp fns
+  -- then traverse rule bodies to get vars, adding foralls
   -- (declare-var a s)
-  defConst "a" "s"
+  defVar "a" "s"
   -- (declare-var b s)
-  defConst "b" "s"
+  defVar "b" "s"
   -- (declare-var c s)
-  defConst "c" "s"
+  defVar "c" "s"
 
   -- (rule (=> (edge a b) (path a b)))
   defRule
@@ -94,11 +95,10 @@ testRules2 :: TestTree
 testRules2 = testUnit "rules2" $ do
   ss <- newSolveSt
   solve ss exampleRules2
+  -- (query q1)
+  (q1, a1) <- solve ss (liftA2 (,) (query ["q1"]) answer)
+  q1 === Z.Sat
+  a1 === TmBool True
 
--- (query q1)
--- (q1, x1) <- solve ss (liftA2 (,) (query ["q1"]) answer)
--- liftIO $ do
---   print q1
---   print x1
 -- (query q2)
 -- (query q3 :print-answer true)
