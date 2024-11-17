@@ -330,8 +330,12 @@ gatherVars tm0 = execStateT (cata go tm0) Set.empty
         _ -> pure ()
     _ -> sequence_ tm
 
-defRule :: Tm -> SolveM ()
-defRule e = do
+defRule :: Tm -> [Tm] -> SolveM ()
+defRule hd tl = do
+  let e = case tl of
+        [] -> hd
+        [x] -> TmImplies x hd
+        _ -> TmImplies (TmAnd tl) hd
   vars <- gatherVars e
   e' <- mkTm e
   q' <-

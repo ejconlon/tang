@@ -20,8 +20,8 @@ exampleRules1 = do
   defRel "a" []
   defRel "b" []
   defRel "c" []
-  defRule (TmImplies "b" "a")
-  defRule (TmImplies "c" "b")
+  defRule "a" ["b"]
+  defRule "b" ["c"]
 
 testRules1 :: TestTree
 testRules1 = testUnit "rules1" $ do
@@ -31,7 +31,7 @@ testRules1 = testUnit "rules1" $ do
     query ["a"]
   resBefore === Z.Unsat
   resAfter <- solve ss $ do
-    defRule "c"
+    defRule "c" []
     query ["a"]
   resAfter === Z.Sat
   ans <- solve ss answer
@@ -59,23 +59,19 @@ exampleRules2 = do
 
   -- (rule (=> (edge a b) (path a b)))
   defRule
-    ( TmImplies
-        (TmApp "edge" ["a", "b"])
-        (TmApp "path" ["a", "b"])
-    )
+    (TmApp "path" ["a", "b"])
+    [TmApp "edge" ["a", "b"]]
   -- (rule (=> (and (path a b) (path b c)) (path a c)))
   defRule
-    ( TmImplies
-        (TmAnd [TmApp "path" ["a", "b"], TmApp "path" ["b", "c"]])
-        (TmApp "path" ["a", "c"])
-    )
+    (TmApp "path" ["a", "c"])
+    [TmApp "path" ["a", "b"], TmApp "path" ["b", "c"]]
 
   -- (rule (edge #b001 #b010))
-  defRule (TmApp "edge" [s 0b001, s 0b010])
+  defRule (TmApp "edge" [s 0b001, s 0b010]) []
   -- (rule (edge #b001 #b011))
-  defRule (TmApp "edge" [s 0b001, s 0b011])
+  defRule (TmApp "edge" [s 0b001, s 0b011]) []
   -- (rule (edge #b010 #b100))
-  defRule (TmApp "edge" [s 0b010, s 0b100])
+  defRule (TmApp "edge" [s 0b010, s 0b100]) []
 
   -- (declare-rel q1 ())
   defRel "q1" []
@@ -85,11 +81,11 @@ exampleRules2 = do
   defRel "q3" ["s"]
 
   -- (rule (=> (path #b001 #b100) q1))
-  defRule (TmImplies (TmApp "path" [s 0b001, s 0b100]) "q1")
+  defRule "q1" [TmApp "path" [s 0b001, s 0b100]]
   -- (rule (=> (path #b011 #b100) q2))
-  defRule (TmImplies (TmApp "path" [s 0b011, s 0b100]) "q2")
+  defRule "q2" [TmApp "path" [s 0b011, s 0b100]]
   -- (rule (=> (path #b001 b) (q3 b)))
-  defRule (TmImplies (TmApp "path" [s 0b001, "b"]) (TmApp "q3" ["b"]))
+  defRule (TmApp "q3" ["b"]) [TmApp "path" [s 0b001, "b"]]
 
 testRules2 :: TestTree
 testRules2 = testUnit "rules2" $ do
