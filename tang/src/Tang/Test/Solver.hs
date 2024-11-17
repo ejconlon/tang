@@ -48,8 +48,6 @@ exampleRules2 = do
   defRel "edge" ["s", "s"]
   -- (declare-rel path (s s))
   defRel "path" ["s", "s"]
-  -- TODO actually declare these as vars not uninterp fns
-  -- then traverse rule bodies to get vars, adding foralls
   -- (declare-var a s)
   defVar "a" "s"
   -- (declare-var b s)
@@ -95,6 +93,11 @@ testRules2 = testUnit "rules2" $ do
   (q1, a1) <- solve ss (liftA2 (,) (query ["q1"]) answer)
   q1 === Z.Sat
   a1 === TmBool True
-
--- (query q2)
--- (query q3 :print-answer true)
+  -- (query q2)
+  q2 <- solve ss (query ["q2"])
+  q2 === Z.Unsat
+  -- (query q3 :print-answer true)
+  -- TODO reflect AST
+  -- (q3, a3) <- solve ss (liftA2 (,) (query ["q3"]) answer)
+  -- q3 === Z.Sat
+  -- a3 === TmBool True
