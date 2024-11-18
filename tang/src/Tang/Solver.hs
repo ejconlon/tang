@@ -1,4 +1,30 @@
-module Tang.Solver where
+module Tang.Solver
+  ( Params
+  , PVal (..)
+  , Err (..)
+  , SolveSt
+  , newSolveSt
+  , SolveT
+  , SolveM
+  , runSolveT
+  , runSolveM
+  , withSolveM
+  , solve
+  , defVar
+  , defConst
+  , defFun
+  , defRel
+  , defTy
+  , defRule
+  , query
+  , answer
+  , params
+  , SolveListM
+  , liftS
+  , nextS
+  , unfoldS
+  )
+where
 
 import Control.Applicative (Alternative (..))
 import Control.Exception (Exception, throwIO)
@@ -8,6 +34,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
+import Data.Bifunctor (second)
 import Data.Foldable (for_, toList)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -19,7 +46,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Tuple (swap)
-import ListT (ListT)
+import ListT (ListT, uncons)
 import Tang.Exp (Tm (..), TmF (..), Ty (..))
 import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
@@ -460,3 +487,21 @@ restoring :: SolveListM a -> SolveListM a
 restoring (SolveListM act) = SolveListM $ do
   ls <- lift push
   ensuring (pop ls) act
+
+liftS :: SolveM a -> SolveListM a
+liftS = SolveListM . lift
+
+nextS :: SolveListM a -> SolveM (Maybe (a, SolveListM a))
+nextS = fmap (fmap (second SolveListM)) . uncons . unSolveListM
+
+unfoldS :: b -> SolveListM a -> (b -> a -> Either b b) -> SolveM b
+unfoldS b0 m0 f = push >>= \ls -> go b0 m0 >>= \bx -> bx <$ pop ls
+ where
+  go !b1 m1 = do
+    mx <- nextS m1
+    case mx of
+      Nothing -> pure b1
+      Just (a, m2) ->
+        case f b1 a of
+          Left b2 -> go b2 m2
+          Right b2 -> pure b2
