@@ -10,6 +10,8 @@ import Control.Monad.Trans (lift)
 import Data.Foldable (for_, toList)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -271,26 +273,85 @@ mkTmF = \case
 mkTm :: Tm -> SolveM Z.AST
 mkTm = cata (sequence >=> mkTmF)
 
-reflect :: Z.AST -> SolveM Tm
-reflect t = do
-  k <- Z.getAstKind t
+assertArity :: String -> [a] -> Int -> b -> SolveM b
+assertArity name as expected b =
+  let actual = length as
+  in  if actual == expected
+        then pure b
+        else throwError (ErrArityMismatch name actual expected)
+
+data Arg = Arg !String !Ty
+  deriving stock (Eq, Ord, Show)
+
+type Env = IntMap Arg
+
+funcEnv :: String -> [String] -> SolveM Env
+funcEnv funcName argNames = do
+  ZTmDef (TmDef _ argTys _) _ <- getTm funcName
+  let actual = length argTys
+      expected = length argNames
+  if actual == expected
+    then pure (IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) (zip argNames argTys))))
+    else throwError (ErrArityMismatch funcName actual expected)
+
+reflectTy :: Z.Sort -> SolveM Ty
+reflectTy s = do
+  k <- Z.getSortKind s
   case k of
-    Z.Z3_APP_AST -> do
-      app' <- Z.toApp t
-      def' <- Z.getAppDecl app'
-      name' <- Z.getDeclName def'
-      name <- Z.getSymbolString name'
-      args' <- Z.getAppArgs app'
-      args <- traverse reflect args'
-      pure $ case name of
-        "and" -> TmAnd args
-        "or" -> TmOr args
-        "true" -> TmBool True
-        "false" -> TmBool False
-        _ -> case args of
-          [] -> TmVar name
-          _ -> TmApp name args
-    _ -> throwError (ErrReflect (show k))
+    Z.Z3_BV_SORT -> fmap TyBv (Z.getBvSortSize s)
+    -- Z3_UNINTERPRETED_SORT
+    -- Z3_BOOL_SORT
+    -- Z3_INT_SORT
+    -- Z3_REAL_SORT
+    -- Z3_BV_SORT
+    -- Z3_ARRAY_SORT
+    -- Z3_DATATYPE_SORT
+    -- Z3_RELATION_SORT
+    -- Z3_FINITE_DOMAIN_SORT
+    -- Z3_FLOATING_POINT_SORT
+    -- Z3_ROUNDING_MODE_SORT
+    -- Z3_UNKNOWN_SORT
+    _ -> error "TODO expand reflectTy"
+
+reflectIntTy :: Ty -> Z.AST -> SolveM Tm
+reflectIntTy ty t = case ty of
+  TyBv _ -> fmap (TmInt ty . fromInteger) (Z.getInt t)
+  _ -> throwError (ErrNotIntTy ty)
+
+reflectTm :: Env -> Z.AST -> SolveM Tm
+reflectTm env = go
+ where
+  go t = do
+    k <- Z.getAstKind t
+    case k of
+      Z.Z3_APP_AST -> do
+        app' <- Z.toApp t
+        def' <- Z.getAppDecl app'
+        name' <- Z.getDeclName def'
+        name <- Z.getSymbolString name'
+        args' <- Z.getAppArgs app'
+        args <- traverse go args'
+        let f = assertArity name args
+        case name of
+          "and" -> pure (TmAnd args)
+          "or" -> pure (TmOr args)
+          "true" -> f 0 (TmBool True)
+          "false" -> f 0 (TmBool False)
+          "=" -> f 2 $ case args of
+            [a1, a2] -> TmEq a1 a2
+            _ -> error "impossible"
+          _ -> case args of
+            [] -> pure (TmVar name)
+            _ -> pure (TmApp name args)
+      Z.Z3_VAR_AST -> do
+        i <- Z.getIndexValue t
+        case IntMap.lookup i env of
+          Nothing -> throwError (ErrReflect ("Invalid index: " ++ show t))
+          Just (Arg n _) -> pure (TmVar n)
+      Z.Z3_NUMERAL_AST -> do
+        ty <- Z.getSort t >>= reflectTy
+        reflectIntTy ty t
+      _ -> throwError (ErrReflect ("Unsupported type: " ++ show k))
 
 defVar :: String -> Ty -> SolveM ()
 defVar name = defFun' RoleVar name []
@@ -347,18 +408,18 @@ defRule hd tl = do
   s' <- mkSym SymAnon
   Z.fixedpointAddRule q' s'
 
-query :: [String] -> SolveM Z.Result
-query names = do
-  decls' <- traverse (fmap (\(ZTmDef _ z) -> z) . getTm) names
-  Z.fixedpointQueryRelations decls'
+query :: String -> SolveM Z.Result
+query funcName = do
+  decl' <- fmap (\(ZTmDef _ z) -> z) (getTm funcName)
+  Z.fixedpointQueryRelations [decl']
+
+answer :: String -> [String] -> SolveM (Maybe Tm)
+answer funcName argNames = do
+  env <- funcEnv funcName argNames
+  res <- query funcName
+  case res of
+    Z.Sat -> fmap Just (Z.fixedpointGetAnswer >>= reflectTm env)
+    _ -> pure Nothing
 
 params :: Params -> SolveM ()
 params = mkParams >=> Z.fixedpointSetParams
-
--- NOTE might only be valid after query, otherwise error
-answer :: SolveM Tm
-answer = Z.fixedpointGetAnswer >>= reflect
-
--- NOTE might only be valid after query, otherwise err
-assertions :: SolveM [Tm]
-assertions = Z.fixedpointGetAssertions >>= traverse reflect

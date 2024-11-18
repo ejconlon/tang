@@ -4,7 +4,7 @@ module Tang.Test.Solver where
 
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (SolveM, answer, assertions, defRel, defRule, defTy, defVar, newSolveSt, query, solve)
+import Tang.Solver (SolveM, answer, defRel, defRule, defTy, defVar, newSolveSt, query, solve)
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -28,16 +28,14 @@ testRules1 = testUnit "rules1" $ do
   ss <- newSolveSt
   solve ss exampleRules1
   resBefore <- solve ss $ do
-    query ["a"]
+    query "a"
   resBefore === Z.Unsat
   resAfter <- solve ss $ do
     defRule "c" []
-    query ["a"]
+    query "a"
   resAfter === Z.Sat
-  ans <- solve ss answer
-  ans === TmBool True
-  ass <- solve ss assertions
-  ass === []
+  ansAfter <- solve ss (answer "a" [])
+  ansAfter === Just (TmBool True)
 
 exampleRules2 :: SolveM ()
 exampleRules2 = do
@@ -87,17 +85,18 @@ exampleRules2 = do
 
 testRules2 :: TestTree
 testRules2 = testUnit "rules2" $ do
+  let s = tmBv 3
   ss <- newSolveSt
   solve ss exampleRules2
   -- (query q1)
-  (q1, a1) <- solve ss (liftA2 (,) (query ["q1"]) answer)
+  (q1, a1) <- solve ss (liftA2 (,) (query "q1") (answer "q1" []))
   q1 === Z.Sat
-  a1 === TmBool True
+  a1 === Just (TmBool True)
   -- (query q2)
-  q2 <- solve ss (query ["q2"])
+  (q2, a2) <- solve ss (liftA2 (,) (query "q2") (answer "q2" []))
   q2 === Z.Unsat
-  -- (query q3 :print-answer true)
-  -- TODO reflect AST
-  -- (q3, a3) <- solve ss (liftA2 (,) (query ["q3"]) answer)
-  -- q3 === Z.Sat
-  -- a3 === TmBool True
+  a2 === Nothing
+  -- (query q3)
+  (q3, a3) <- solve ss (liftA2 (,) (query "q3") (answer "q3" ["b"]))
+  q3 === Z.Sat
+  a3 === Just (TmOr [TmEq "b" (s 3), TmEq "b" (s 4), TmEq "b" (s 2)])
