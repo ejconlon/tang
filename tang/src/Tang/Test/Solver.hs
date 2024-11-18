@@ -99,4 +99,6 @@ testRules2 = testUnit "rules2" $ do
   -- (query q3)
   (q3, a3) <- solve ss (liftA2 (,) (query "q3") (answer "q3" ["b"]))
   q3 === Z.Sat
+  -- How consistent is this ordering of solutions?
+  -- May need to make this more robust at some point
   a3 === Just (TmOr [TmEq "b" (s 3), TmEq "b" (s 4), TmEq "b" (s 2)])
