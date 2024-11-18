@@ -83,6 +83,7 @@ library
       base >=4.12 && <5
     , containers
     , int-like >=0.1.3
+    , list-t
     , logict
     , mtl
     , nonempty-containers
@@ -140,6 +141,7 @@ test-suite tang-test
       base >=4.12 && <5
     , containers
     , int-like >=0.1.3
+    , list-t
     , logict
     , mtl
     , nonempty-containers

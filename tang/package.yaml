@@ -16,6 +16,7 @@ defaults:
 dependencies:
 - base >= 4.12 && < 5
 - logict
+- list-t
 - mtl
 - transformers
 - text
