@@ -1,12 +1,19 @@
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Tang.Test.Enumerate (testEnumerate) where
+module Tang.Test.Enumerate
+  ( testEnumerate
+  , exampleFxx
+  , exampleFxxyy
+  )
+where
 
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExcept)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (Reader, asks, runReader)
 import Data.Sequence (Seq (..))
+import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
@@ -15,10 +22,23 @@ import Prettyprinter (Doc, defaultLayoutOptions, layoutSmart)
 import Prettyprinter.Render.Text (renderStrict)
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Align (Alignable)
-import Tang.Ecta (GraphM, IxEqCon, NodeId, SegEqCon, buildGraph, eqConT, ngRewriteSeg)
+import Tang.Ecta
+  ( Edge (..)
+  , EqCon (..)
+  , GraphM
+  , IxEqCon
+  , NodeId
+  , Seg (..)
+  , SegEqCon
+  , addSymbol
+  , addUnion
+  , buildGraph
+  , eqConT
+  , ngRewriteSeg
+  )
 import Tang.Enumerate (Elem (..), ElemInfo (..), EnumErr, EnumSt, Synth (..), SynthId (..), enumerate)
 import Tang.Search (SearchStrat (..))
-import Tang.Test.Symbolic (Symbolic (..), exampleFxx, exampleFxxyy, exampleX, symPrettyM)
+import Tang.Symbolic (Symbolic (..), symPrettyM)
 
 -- TODO move to lib
 type EnumStrat e f = SearchStrat (EnumErr e) (EnumSt f IxEqCon) (Synth f)
@@ -72,6 +92,25 @@ mkSynthCase name results graph =
             --   putStr "expected: " >> print expected
             --   putStr "actual:   " >> print actual
             expected === actual
+
+exampleX :: GraphM Symbolic SegEqCon NodeId
+exampleX = addSymbol (Symbolic "x" []) Set.empty
+
+exampleFxx :: GraphM Symbolic SegEqCon NodeId
+exampleFxx = do
+  ex <- fmap (Edge Nothing) exampleX
+  addSymbol (Symbolic "f" [ex, ex]) Set.empty
+
+exampleFxxyy :: GraphM Symbolic SegEqCon NodeId
+exampleFxxyy = do
+  x1 <- addSymbol (Symbolic "x" []) Set.empty
+  y1 <- addSymbol (Symbolic "y" []) Set.empty
+  z1 <- fmap (Edge (Just "fst")) (addUnion x1 y1)
+  x2 <- addSymbol (Symbolic "x" []) Set.empty
+  y2 <- addSymbol (Symbolic "y" []) Set.empty
+  z2 <- fmap (Edge (Just "snd")) (addUnion x2 y2)
+  let eq = EqCon (Seq.singleton (SegLabel "fst")) (Seq.singleton (SegLabel "snd"))
+  addSymbol (Symbolic "f" [z1, z2]) (Set.singleton eq)
 
 enumCases :: [EnumCase]
 enumCases =

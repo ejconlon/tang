@@ -1,7 +1,6 @@
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Tang.Test.Symbolic where
+module Tang.Symbolic where
 
 import Control.Monad.Identity (Identity (..))
 import Data.Foldable (toList)
@@ -40,25 +39,6 @@ instance (Pretty a) => Pretty (Symbolic a) where
 
 instance Alignable EqAlignErr Symbolic where
   alignWithM = eqAlignWithM
-
-exampleX :: GraphM Symbolic SegEqCon NodeId
-exampleX = addSymbol (Symbolic "x" []) Set.empty
-
-exampleFxx :: GraphM Symbolic SegEqCon NodeId
-exampleFxx = do
-  ex <- fmap (Edge Nothing) exampleX
-  addSymbol (Symbolic "f" [ex, ex]) Set.empty
-
-exampleFxxyy :: GraphM Symbolic SegEqCon NodeId
-exampleFxxyy = do
-  x1 <- addSymbol (Symbolic "x" []) Set.empty
-  y1 <- addSymbol (Symbolic "y" []) Set.empty
-  z1 <- fmap (Edge (Just "fst")) (addUnion x1 y1)
-  x2 <- addSymbol (Symbolic "x" []) Set.empty
-  y2 <- addSymbol (Symbolic "y" []) Set.empty
-  z2 <- fmap (Edge (Just "snd")) (addUnion x2 y2)
-  let eq = EqCon (Seq.singleton (SegLabel "fst")) (Seq.singleton (SegLabel "snd"))
-  addSymbol (Symbolic "f" [z1, z2]) (Set.singleton eq)
 
 renderSymbolic :: Symbolic a -> Builder
 renderSymbolic (Symbolic (Symbol s) _) = TLB.fromText s

@@ -33,6 +33,7 @@ library
       Tang.Render
       Tang.Search
       Tang.Solver
+      Tang.Symbolic
       Tang.Test
       Tang.Test.Dot
       Tang.Test.Enumerate
@@ -40,8 +41,8 @@ library
       Tang.Test.Search
       Tang.Test.Solver
       Tang.Test.State
-      Tang.Test.Symbolic
       Tang.Test.UnionMap
+      Tang.Translate
       Tang.UnionMap
       Tang.Util
   other-modules:
