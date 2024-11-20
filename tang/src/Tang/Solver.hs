@@ -20,8 +20,8 @@ module Tang.Solver
   , answer
   , params
   , assert
-  -- , check
-  -- , model
+  , check
+  , model
   , SolveListM
   , liftS
   , nextS
@@ -46,6 +46,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
+import Data.Traversable (for)
 import Data.Tuple (swap)
 import ListT (ListT, uncons)
 import Tang.Exp (Tm (..), TmF (..), Ty (..))
@@ -485,6 +486,68 @@ params = mkParams >=> Z.fixedpointSetParams
 
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert = mkImplicitForall >=> Z.assert
+
+check :: (MonadIO m) => SolveT m Z.Result
+check = Z.check
+
+data FuncEntry = FuncEntry
+  { feArgs :: ![Tm]
+  , feValue :: !Tm
+  }
+  deriving stock (Eq, Ord, Show)
+
+reflectFuncEntry :: (MonadIO m) => Z.FuncEntry -> SolveT m FuncEntry
+reflectFuncEntry fe = do
+  let f = reflectTm IntMap.empty
+  numArgs <- Z.funcEntryGetNumArgs fe
+  args <- traverse (Z.funcEntryGetArg fe >=> f) [0 .. numArgs - 1]
+  value <- Z.funcEntryGetValue fe >>= f
+  pure (FuncEntry args value)
+
+data FuncInterp = FuncInterp
+  { feEntries :: ![FuncEntry]
+  , feElseCase :: !(Maybe Tm)
+  }
+  deriving stock (Eq, Ord, Show)
+
+reflectFuncInterp :: (MonadIO m) => Z.FuncInterp -> SolveT m FuncInterp
+reflectFuncInterp fi = do
+  numEntries <- Z.funcInterpGetNumEntries fi
+  entries <- traverse (Z.funcInterpGetEntry fi >=> reflectFuncEntry) [0 .. numEntries - 1]
+  ec' <- Z.funcInterpGetElse fi
+  ecKind' <- Z.getAstKind ec'
+  ec <- case ecKind' of
+    Z.Z3_UNKNOWN_AST -> pure Nothing
+    _ -> fmap Just (reflectTm IntMap.empty ec')
+  pure (FuncInterp entries ec)
+
+data Interp = InterpConst !Tm | InterpFunc !FuncInterp
+  deriving stock (Eq, Ord, Show)
+
+type Model = Map String Interp
+
+reflectMod :: (MonadIO m) => Z.Model -> SolveT m Model
+reflectMod m = do
+  consts <- Z.getConsts m
+  constInterps <- for consts $ \x -> do
+    name <- Z.getDeclName x >>= Z.getSymbolString
+    my <- Z.getConstInterp m x
+    z <- case my of
+      Nothing -> error "impossible"
+      Just y -> reflectTm IntMap.empty y
+    pure (name, InterpConst z)
+  funcs <- Z.getConsts m
+  funcInterps <- for funcs $ \x -> do
+    name <- Z.getDeclName x >>= Z.getSymbolString
+    my <- Z.getFuncInterp m x
+    z <- case my of
+      Nothing -> error "impossible"
+      Just y -> reflectFuncInterp y
+    pure (name, InterpFunc z)
+  pure (Map.fromList constInterps <> Map.fromList funcInterps)
+
+model :: (MonadIO m) => SolveT m (Maybe Model)
+model = fmap snd (Z.withModel reflectMod)
 
 -- private
 push :: (MonadIO m) => SolveT m LocalSt
