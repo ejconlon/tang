@@ -11,14 +11,13 @@ module Tang.Solver
   , withSolveM
   , solve
   , defVar
+  , defVars
   , defConst
+  , defConsts
   , defFun
-  , defRel
+  , defFuns
   , defTy
-  , defRule
-  , query
-  , answer
-  , params
+  , defTys
   , assert
   , assertWith
   , check
@@ -43,7 +42,7 @@ import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
-import Data.Foldable (foldl', for_)
+import Data.Foldable (foldl', for_, traverse_)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
@@ -77,7 +76,7 @@ instance Data.String.IsString Sym where
 data Role = RoleUninterp | RoleVar | RoleRel
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-data TmDef = TmDef !Role ![Ty] !Ty
+data TmDef = TmDef !Role ![(String, Ty)] !Ty
   deriving stock (Eq, Ord, Show)
 
 -- Nothing means uninterpreted
@@ -279,7 +278,7 @@ mkIntSort ty = do
 mkFuncDecl :: (MonadIO m) => String -> TmDef -> SolveT m Z.FuncDecl
 mkFuncDecl name (TmDef _ args ret) = do
   name' <- Z.mkStringSymbol name
-  args' <- traverse getSort args
+  args' <- traverse (getSort . snd) args
   ret' <- getSort ret
   Z.mkFuncDecl name' args' ret'
 
@@ -333,17 +332,10 @@ type EnvTo = Map String (Arg Int)
 
 type EnvFrom = IntMap (Arg String)
 
--- data Env = Env !EnvTo !EnvFrom
---   deriving stock (Eq, Ord, Show)
-
-funcEnv :: (MonadIO m) => String -> [String] -> SolveT m EnvFrom
-funcEnv funcName argNames = do
-  ZTmDef (TmDef _ argTys _) _ <- getTm funcName
-  let actual = length argTys
-      expected = length argNames
-  if actual == expected
-    then pure (IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) (zip argNames argTys))))
-    else throwError (ErrArityMismatch funcName actual expected)
+mkEnvFrom :: (MonadIO m) => String -> SolveT m EnvFrom
+mkEnvFrom funcName = do
+  ZTmDef (TmDef _ argPairs _) _ <- getTm funcName
+  pure (IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) argPairs)))
 
 reflectTy :: (MonadIO m) => Z.Sort -> SolveT m Ty
 reflectTy s = do
@@ -407,13 +399,22 @@ reflectTm env = go
 defVar :: (MonadIO m) => String -> Ty -> SolveT m ()
 defVar name = defFun' RoleVar name []
 
+defVars :: (MonadIO m) => [String] -> Ty -> SolveT m ()
+defVars ns ty = traverse_ (`defVar` ty) ns
+
 defConst :: (MonadIO m) => String -> Ty -> SolveT m ()
 defConst name = defFun name []
 
-defFun :: (MonadIO m) => String -> [Ty] -> Ty -> SolveT m ()
+defConsts :: (MonadIO m) => [String] -> Ty -> SolveT m ()
+defConsts ns ty = traverse_ (`defConst` ty) ns
+
+defFun :: (MonadIO m) => String -> [(String, Ty)] -> Ty -> SolveT m ()
 defFun = defFun' RoleUninterp
 
-defFun' :: (MonadIO m) => Role -> String -> [Ty] -> Ty -> SolveT m ()
+defFuns :: (MonadIO m) => [String] -> [(String, Ty)] -> Ty -> SolveT m ()
+defFuns ns args ret = traverse_ (\n -> defFun n args ret) ns
+
+defFun' :: (MonadIO m) => Role -> String -> [(String, Ty)] -> Ty -> SolveT m ()
 defFun' role name args ret = do
   let tmd = TmDef role args ret
   fd' <- mkFuncDecl name tmd
@@ -424,12 +425,8 @@ defTy name mty = do
   sort' <- getOrCreateSort name mty
   setDef name (ZDefTy (ZTyDef (TyDef mty) sort'))
 
-defRel :: (MonadIO m) => String -> [Ty] -> SolveT m ()
-defRel name args = do
-  let tmd = TmDef RoleRel args TyBool
-  fd' <- mkFuncDecl name tmd
-  Z.fixedpointRegisterRelation fd'
-  setDef name (ZDefTm (ZTmDef tmd fd'))
+defTys :: (MonadIO m) => [String] -> Maybe Ty -> SolveT m ()
+defTys ns mty = traverse_ (`defTy` mty) ns
 
 gatherVars :: (MonadIO m) => Tm -> SolveT m (Map String Ty)
 gatherVars tm0 = execStateT (cata go tm0) Map.empty
@@ -463,32 +460,6 @@ mkImplicitForall e = do
   let env = mkEnvTo vars
   mkExplicitForall env e
 
-defRule :: (MonadIO m) => Tm -> [Tm] -> SolveT m ()
-defRule hd tl = do
-  let e = case tl of
-        [] -> hd
-        [x] -> TmImplies x hd
-        _ -> TmImplies (TmAnd tl) hd
-  q' <- mkImplicitForall e
-  s' <- mkSym SymAnon
-  Z.fixedpointAddRule q' s'
-
-query :: (MonadIO m) => String -> SolveT m Z.Result
-query funcName = do
-  decl' <- fmap (\(ZTmDef _ z) -> z) (getTm funcName)
-  Z.fixedpointQueryRelations [decl']
-
-answer :: (MonadIO m) => String -> [String] -> SolveT m (Maybe Tm)
-answer funcName argNames = do
-  env <- funcEnv funcName argNames
-  res <- query funcName
-  case res of
-    Z.Sat -> fmap Just (Z.fixedpointGetAnswer >>= reflectTm env)
-    _ -> pure Nothing
-
-params :: (MonadIO m) => Params -> SolveT m ()
-params = mkParams >=> Z.fixedpointSetParams
-
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert = mkImplicitForall >=> Z.assert
 
@@ -504,12 +475,11 @@ data FuncEntry = FuncEntry
   }
   deriving stock (Eq, Ord, Show)
 
-reflectFuncEntry :: (MonadIO m) => Z.FuncEntry -> SolveT m FuncEntry
-reflectFuncEntry fe = do
-  let f = reflectTm IntMap.empty
+reflectFuncEntry :: (MonadIO m) => EnvFrom -> Z.FuncEntry -> SolveT m FuncEntry
+reflectFuncEntry env fe = do
   numArgs <- Z.funcEntryGetNumArgs fe
-  args <- traverse (Z.funcEntryGetArg fe >=> f) [0 .. numArgs - 1]
-  value <- Z.funcEntryGetValue fe >>= f
+  args <- traverse (Z.funcEntryGetArg fe >=> reflectTm env) [0 .. numArgs - 1]
+  value <- Z.funcEntryGetValue fe >>= reflectTm env
   pure (FuncEntry args value)
 
 data FuncInterp = FuncInterp
@@ -518,15 +488,15 @@ data FuncInterp = FuncInterp
   }
   deriving stock (Eq, Ord, Show)
 
-reflectFuncInterp :: (MonadIO m) => Z.FuncInterp -> SolveT m FuncInterp
-reflectFuncInterp fi = do
+reflectFuncInterp :: (MonadIO m) => EnvFrom -> Z.FuncInterp -> SolveT m FuncInterp
+reflectFuncInterp env fi = do
   numEntries <- Z.funcInterpGetNumEntries fi
-  entries <- traverse (Z.funcInterpGetEntry fi >=> reflectFuncEntry) [0 .. numEntries - 1]
+  entries <- traverse (Z.funcInterpGetEntry fi >=> reflectFuncEntry env) [0 .. numEntries - 1]
   ec' <- Z.funcInterpGetElse fi
   ecKind' <- Z.getAstKind ec'
   ec <- case ecKind' of
     Z.Z3_UNKNOWN_AST -> pure Nothing
-    _ -> fmap Just (reflectTm IntMap.empty ec')
+    _ -> fmap Just (reflectTm env ec')
   pure (FuncInterp entries ec)
 
 data Interp = InterpConst !Tm | InterpFunc !FuncInterp
@@ -536,24 +506,31 @@ type Model = Map String Interp
 
 reflectMod :: (MonadIO m) => Z.Model -> SolveT m Model
 reflectMod m = do
-  consts <- Z.getConsts m
-  o1 <- foldM' Map.empty consts $ \o x -> do
-    name <- Z.getDeclName x >>= Z.getSymbolString
-    my <- Z.getConstInterp m x
-    case my of
-      Nothing -> pure o
-      Just y -> do
-        z <- reflectTm IntMap.empty y
-        pure (Map.insert name (InterpConst z) o)
-  funcs <- Z.getConsts m
-  foldM' o1 funcs $ \o x -> do
-    name <- Z.getDeclName x >>= Z.getSymbolString
-    my <- Z.getFuncInterp m x
-    case my of
-      Nothing -> pure o
-      Just y -> do
-        z <- reflectFuncInterp y
-        pure (Map.insert name (InterpFunc z) o)
+  numConsts <- Z.numConsts m
+  o1 <- if numConsts == 0
+    then pure Map.empty
+    else foldM' Map.empty [0 .. numConsts - 1] $ \o i -> do
+      x <- Z.getConstDecl m i
+      my <- Z.getConstInterp m x
+      case my of
+        Nothing -> pure o
+        Just y -> do
+          name <- Z.getDeclName x >>= Z.getSymbolString
+          z <- reflectTm IntMap.empty y
+          pure (Map.insert name (InterpConst z) o)
+  numFuncs <- Z.numFuncs m
+  if numFuncs == 0
+    then pure o1
+    else foldM' o1 [0 .. numFuncs - 1] $ \o i -> do
+      x <- Z.getFuncDecl m i
+      my <- Z.getFuncInterp m x
+      case my of
+        Nothing -> pure o
+        Just y -> do
+          name <- Z.getDeclName x >>= Z.getSymbolString
+          env <- mkEnvFrom name
+          z <- reflectFuncInterp env y
+          pure (Map.insert name (InterpFunc z) o)
 
 model :: (MonadIO m) => SolveT m (Maybe Model)
 model = fmap snd (Z.withModel reflectMod)

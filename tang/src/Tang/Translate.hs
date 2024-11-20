@@ -9,7 +9,7 @@ import Data.Map.Strict (Map)
 import IntLike.Map qualified as ILM
 import Tang.Ecta (ChildIx (..), IxEqCon, Node (..), NodeId (..), NodeMap)
 import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (SolveM, assert, defRel, defTy)
+import Tang.Solver (SolveM, assert, defFun, defTy)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 
 ceilLog2 :: Int -> Int
@@ -35,9 +35,9 @@ translate nm = do
   defTy "nid" (Just nidTy)
   defTy "cix" (Just cixTy)
   defTy "sym" (Just symTy)
-  defRel "narity" ["nid", "cix"]
-  defRel "nchild" ["nid", "cix", "nid"]
-  defRel "nsym" ["nid", "sym"]
+  -- defFun "narity" ["nid", "cix"]
+  -- defFun "nchild" ["nid", "cix", "nid"]
+  -- defFun "nsym" ["nid", "sym"]
   -- TODO functionality should be a macro
   -- narity is functional
   -- assertForall
