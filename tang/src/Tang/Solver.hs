@@ -22,6 +22,10 @@ module Tang.Solver
   , assert
   , assertWith
   , check
+  , FuncEntry (..)
+  , FuncInterp (..)
+  , Interp (..)
+  , Model
   , model
   , SolveListM
   , liftS
@@ -46,12 +50,11 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
 import Data.String (IsString (..))
-import Data.Traversable (for)
 import Data.Tuple (swap)
 import ListT (ListT, uncons)
 import Tang.Exp (Tm (..), TmF (..), Ty (..))
+import Tang.Util (foldM')
 import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
 import Z3.Opts qualified as ZO
@@ -68,7 +71,7 @@ data PVal
 data Sym = SymNamed !String | SymAnon
   deriving stock (Eq, Ord, Show)
 
-instance IsString Sym where
+instance Data.String.IsString Sym where
   fromString = SymNamed
 
 data Role = RoleUninterp | RoleVar | RoleRel
@@ -534,22 +537,23 @@ type Model = Map String Interp
 reflectMod :: (MonadIO m) => Z.Model -> SolveT m Model
 reflectMod m = do
   consts <- Z.getConsts m
-  constInterps <- for consts $ \x -> do
+  o1 <- foldM' Map.empty consts $ \o x -> do
     name <- Z.getDeclName x >>= Z.getSymbolString
     my <- Z.getConstInterp m x
-    z <- case my of
-      Nothing -> error "impossible"
-      Just y -> reflectTm IntMap.empty y
-    pure (name, InterpConst z)
+    case my of
+      Nothing -> pure o
+      Just y -> do
+        z <- reflectTm IntMap.empty y
+        pure (Map.insert name (InterpConst z) o)
   funcs <- Z.getConsts m
-  funcInterps <- for funcs $ \x -> do
+  foldM' o1 funcs $ \o x -> do
     name <- Z.getDeclName x >>= Z.getSymbolString
     my <- Z.getFuncInterp m x
-    z <- case my of
-      Nothing -> error "impossible"
-      Just y -> reflectFuncInterp y
-    pure (name, InterpFunc z)
-  pure (Map.fromList constInterps <> Map.fromList funcInterps)
+    case my of
+      Nothing -> pure o
+      Just y -> do
+        z <- reflectFuncInterp y
+        pure (Map.insert name (InterpFunc z) o)
 
 model :: (MonadIO m) => SolveT m (Maybe Model)
 model = fmap snd (Z.withModel reflectMod)

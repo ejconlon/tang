@@ -2,10 +2,25 @@
 
 module Tang.Test.Solver where
 
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (SolveM, answer, defRel, defRule, defTy, defVar, newSolveSt, query, solve)
+import Tang.Solver
+  ( Interp (..)
+  , SolveM
+  , answer
+  , assert
+  , defConst
+  , defRel
+  , defRule
+  , defTy
+  , defVar
+  , model
+  , newSolveSt
+  , query
+  , solve
+  )
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -14,6 +29,8 @@ testSolver =
     "solver"
     [ testRules1
     , testRules2
+    , testSolve1
+    -- , testSolve2
     ]
 
 exampleRules1 :: SolveM ()
@@ -37,6 +54,21 @@ testRules1 = testUnit "rules1" $ do
   resAfter === Z.Sat
   ansAfter <- solve ss (answer "a" [])
   ansAfter === Just (TmBool True)
+
+testSolve1 :: TestTree
+testSolve1 = testUnit "solve1" $ do
+  ss <- newSolveSt
+  mm <- solve ss $ do
+    defConst "a" TyBool
+    defConst "b" TyBool
+    defConst "c" TyBool
+    assert (TmImplies "c" "b")
+    assert (TmImplies "b" "a")
+    assert "c"
+    model
+  case mm of
+    Just m -> Just (InterpConst (TmBool True)) === Map.lookup "a" m
+    Nothing -> fail "expected model"
 
 exampleRules2 :: SolveM ()
 exampleRules2 = do
