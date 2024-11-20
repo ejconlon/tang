@@ -20,6 +20,7 @@ module Tang.Solver
   , answer
   , params
   , assert
+  , assertWith
   , check
   , model
   , SolveListM
@@ -45,6 +46,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Traversable (for)
 import Data.Tuple (swap)
@@ -486,6 +488,9 @@ params = mkParams >=> Z.fixedpointSetParams
 
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert = mkImplicitForall >=> Z.assert
+
+assertWith :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
+assertWith vars = mkExplicitForall (mkEnvTo (Map.fromList vars)) >=> Z.assert
 
 check :: (MonadIO m) => SolveT m Z.Result
 check = Z.check
