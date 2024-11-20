@@ -2,6 +2,7 @@
 
 module Tang.Test.Solver where
 
+import Data.Set qualified as Set
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..), tmBv)
 import Tang.Solver (SolveM, answer, defRel, defRule, defTy, defVar, newSolveSt, query, solve)
@@ -101,4 +102,9 @@ testRules2 = testUnit "rules2" $ do
   q3 === Z.Sat
   -- How consistent is this ordering of solutions?
   -- May need to make this more robust at some point
-  a3 === Just (TmOr [TmEq "b" (s 3), TmEq "b" (s 4), TmEq "b" (s 2)])
+  let expectedTms = Set.fromList (fmap (TmEq "b" . s) [2, 3, 4])
+  case a3 of
+    Just (TmOr eqList) -> do
+      let actualTms = Set.fromList eqList
+      actualTms === expectedTms
+    _ -> fail "expected or"

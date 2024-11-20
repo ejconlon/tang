@@ -20,6 +20,8 @@ module Tang.Solver
   , answer
   , params
   , assert
+  -- , check
+  -- , model
   , SolveListM
   , liftS
   , nextS
@@ -35,17 +37,14 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
-import Control.Placeholder (todo)
 import Data.Bifunctor (second)
-import Data.Foldable (for_, toList)
+import Data.Foldable (foldl', for_)
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Tuple (swap)
 import ListT (ListT, uncons)
@@ -278,13 +277,18 @@ mkFuncDecl name (TmDef _ args ret) = do
   ret' <- getSort ret
   Z.mkFuncDecl name' args' ret'
 
-mkTmF :: (MonadIO m) => TmF Z.AST -> SolveT m Z.AST
-mkTmF = \case
+mkTmF :: (MonadIO m) => EnvTo -> TmF Z.AST -> SolveT m Z.AST
+mkTmF env = \case
   TmVarF x -> do
-    ZTmDef (TmDef _ args _) fd' <- getTm x
-    case args of
-      [] -> Z.mkApp fd' []
-      _ -> throwError (ErrArityMismatch x (length args) 0)
+    case Map.lookup x env of
+      Just (Arg i ty) -> do
+        sort' <- getSort ty
+        Z.mkBound i sort'
+      Nothing -> do
+        ZTmDef (TmDef _ args _) fd' <- getTm x
+        case args of
+          [] -> Z.mkApp fd' []
+          _ -> throwError (ErrArityMismatch x (length args) 0)
   TmBoolF x -> Z.mkBool x
   TmIntF ty x -> do
     sort' <- mkIntSort ty
@@ -306,8 +310,8 @@ mkTmF = \case
       then Z.mkApp fd' y
       else throwError (ErrArityMismatch x actualAr expectedAr)
 
-mkTm :: (MonadIO m) => Tm -> SolveT m Z.AST
-mkTm = cata (sequence >=> mkTmF)
+mkTm :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
+mkTm env = cata (sequence >=> mkTmF env)
 
 assertArity :: (Monad m) => String -> [a] -> Int -> b -> SolveT m b
 assertArity name as expected b =
@@ -316,12 +320,17 @@ assertArity name as expected b =
         then pure b
         else throwError (ErrArityMismatch name actual expected)
 
-data Arg = Arg !String !Ty
+data Arg k = Arg {argKey :: !k, argTy :: !Ty}
   deriving stock (Eq, Ord, Show)
 
-type Env = IntMap Arg
+type EnvTo = Map String (Arg Int)
 
-funcEnv :: (MonadIO m) => String -> [String] -> SolveT m Env
+type EnvFrom = IntMap (Arg String)
+
+-- data Env = Env !EnvTo !EnvFrom
+--   deriving stock (Eq, Ord, Show)
+
+funcEnv :: (MonadIO m) => String -> [String] -> SolveT m EnvFrom
 funcEnv funcName argNames = do
   ZTmDef (TmDef _ argTys _) _ <- getTm funcName
   let actual = length argTys
@@ -354,7 +363,7 @@ reflectIntTy ty t = case ty of
   TyBv _ -> fmap (TmInt ty . fromInteger) (Z.getInt t)
   _ -> throwError (ErrNotIntTy ty)
 
-reflectTm :: (MonadIO m) => Env -> Z.AST -> SolveT m Tm
+reflectTm :: (MonadIO m) => EnvFrom -> Z.AST -> SolveT m Tm
 reflectTm env = go
  where
   go t = do
@@ -416,16 +425,37 @@ defRel name args = do
   Z.fixedpointRegisterRelation fd'
   setDef name (ZDefTm (ZTmDef tmd fd'))
 
-gatherVars :: (MonadIO m) => Tm -> SolveT m (Set String)
-gatherVars tm0 = execStateT (cata go tm0) Set.empty
+gatherVars :: (MonadIO m) => Tm -> SolveT m (Map String Ty)
+gatherVars tm0 = execStateT (cata go tm0) Map.empty
  where
   go tm = case tm of
     TmVarF x -> do
-      (ZTmDef (TmDef role _ _) _) <- lift (getTm x)
+      (ZTmDef (TmDef role _ ty) _) <- lift (getTm x)
       case role of
-        RoleVar -> modify' (Set.insert x)
+        RoleVar -> modify' (Map.insert x ty)
         _ -> pure ()
     _ -> sequence_ tm
+
+mkEnvTo :: Map String Ty -> EnvTo
+mkEnvTo = foldl' go Map.empty . zip [0 ..] . Map.toList
+ where
+  go m (i, (k, ty)) = Map.insert k (Arg i ty) m
+
+mkExplicitForall :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
+mkExplicitForall env e = do
+  e' <- mkTm env e
+  if Map.null env
+    then pure e'
+    else do
+      syms' <- traverse Z.mkStringSymbol (Map.keys env)
+      sorts' <- traverse (getSort . argTy) (Map.elems env)
+      Z.mkForall [] syms' sorts' e'
+
+mkImplicitForall :: (MonadIO m) => Tm -> SolveT m Z.AST
+mkImplicitForall e = do
+  vars <- gatherVars e
+  let env = mkEnvTo vars
+  mkExplicitForall env e
 
 defRule :: (MonadIO m) => Tm -> [Tm] -> SolveT m ()
 defRule hd tl = do
@@ -433,14 +463,7 @@ defRule hd tl = do
         [] -> hd
         [x] -> TmImplies x hd
         _ -> TmImplies (TmAnd tl) hd
-  vars <- gatherVars e
-  e' <- mkTm e
-  q' <-
-    if Set.null vars
-      then pure e'
-      else do
-        apps' <- traverse (mkTm . TmVar >=> Z.toApp) (toList vars)
-        Z.mkForallConst [] apps' e'
+  q' <- mkImplicitForall e
   s' <- mkSym SymAnon
   Z.fixedpointAddRule q' s'
 
@@ -460,8 +483,8 @@ answer funcName argNames = do
 params :: (MonadIO m) => Params -> SolveT m ()
 params = mkParams >=> Z.fixedpointSetParams
 
-assert :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
-assert vars body = todo
+assert :: (MonadIO m) => Tm -> SolveT m ()
+assert = mkImplicitForall >=> Z.assert
 
 -- private
 push :: (MonadIO m) => SolveT m LocalSt

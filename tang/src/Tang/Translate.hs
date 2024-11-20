@@ -40,26 +40,26 @@ translate nm = do
   defRel "nsym" ["nid", "sym"]
   -- TODO functionality should be a macro
   -- narity is functional
-  assert
-    [("n", "nid"), ("i1", "cix"), ("i2", "cix")]
-    ( TmImplies
-        (TmAnd [TmApp "narity" ["n", "i1"], TmApp "narity" ["n", "i2"]])
-        (TmEq "i1" "i2")
-    )
-  -- nchild is functional
-  assert
-    [("n", "nid"), ("i", "cix"), ("c1", "nid"), ("c2", "nid")]
-    ( TmImplies
-        (TmAnd [TmApp "nchild" ["n", "i", "c1"], TmApp "nchild" ["n", "i", "c2"]])
-        (TmEq "c1" "c2")
-    )
-  -- nsym is functional
-  assert
-    [("n", "nid"), ("s1", "sym"), ("s2", "sym")]
-    ( TmImplies
-        (TmAnd [TmApp "nsym" ["n", "s1"], TmApp "nsym" ["n", "s2"]])
-        (TmEq "s1" "s2")
-    )
+  -- assertForall
+  --   [("n", "nid"), ("i1", "cix"), ("i2", "cix")]
+  --   ( TmImplies
+  --       (TmAnd [TmApp "narity" ["n", "i1"], TmApp "narity" ["n", "i2"]])
+  --       (TmEq "i1" "i2")
+  --   )
+  -- -- nchild is functional
+  -- assertForall
+  --   [("n", "nid"), ("i", "cix"), ("c1", "nid"), ("c2", "nid")]
+  --   ( TmImplies
+  --       (TmAnd [TmApp "nchild" ["n", "i", "c1"], TmApp "nchild" ["n", "i", "c2"]])
+  --       (TmEq "c1" "c2")
+  --   )
+  -- -- nsym is functional
+  -- assertForall
+  --   [("n", "nid"), ("s1", "sym"), ("s2", "sym")]
+  --   ( TmImplies
+  --       (TmAnd [TmApp "nsym" ["n", "s1"], TmApp "nsym" ["n", "s2"]])
+  --       (TmEq "s1" "s2")
+  --   )
   encodeMap nidTm cixTm symTm nm
 
 encodeMap
