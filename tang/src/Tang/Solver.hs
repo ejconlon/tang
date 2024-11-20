@@ -507,17 +507,18 @@ type Model = Map String Interp
 reflectMod :: (MonadIO m) => Z.Model -> SolveT m Model
 reflectMod m = do
   numConsts <- Z.numConsts m
-  o1 <- if numConsts == 0
-    then pure Map.empty
-    else foldM' Map.empty [0 .. numConsts - 1] $ \o i -> do
-      x <- Z.getConstDecl m i
-      my <- Z.getConstInterp m x
-      case my of
-        Nothing -> pure o
-        Just y -> do
-          name <- Z.getDeclName x >>= Z.getSymbolString
-          z <- reflectTm IntMap.empty y
-          pure (Map.insert name (InterpConst z) o)
+  o1 <-
+    if numConsts == 0
+      then pure Map.empty
+      else foldM' Map.empty [0 .. numConsts - 1] $ \o i -> do
+        x <- Z.getConstDecl m i
+        my <- Z.getConstInterp m x
+        case my of
+          Nothing -> pure o
+          Just y -> do
+            name <- Z.getDeclName x >>= Z.getSymbolString
+            z <- reflectTm IntMap.empty y
+            pure (Map.insert name (InterpConst z) o)
   numFuncs <- Z.numFuncs m
   if numFuncs == 0
     then pure o1

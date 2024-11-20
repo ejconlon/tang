@@ -5,7 +5,7 @@ module Tang.Test.Solver where
 import Data.Map.Strict qualified as Map
 import PropUnit (TestTree, testGroup, testUnit, (===))
 import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (Interp (..), assert, defConst, defTy, model, newSolveSt, solve, defVars, defFuns, defFun, check)
+import Tang.Solver (Interp (..), assert, check, defConst, defFun, defFuns, defTy, defVars, model, newSolveSt, solve)
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -44,13 +44,15 @@ testSolve2 = testUnit "rules2" $ do
     defTy "s" (Just (TyBv 3))
     defFuns ["edge", "path"] [("vert0", "s"), ("vert1", "s")] TyBool
     defVars ["a", "b", "c"] "s"
-    assert $ TmIff
-      (appTrue "path" ["a", "c"])
-      (TmOr
-        [ appTrue "edge" ["a", "c"]
-        , appTrue "edge" ["c", "a"]
-        , TmAnd [appTrue "path" ["a", "b"], appTrue "path" ["b", "c"]]
-        ])
+    assert $
+      TmIff
+        (appTrue "path" ["a", "c"])
+        ( TmOr
+            [ appTrue "edge" ["a", "c"]
+            , appTrue "edge" ["c", "a"]
+            , TmAnd [appTrue "path" ["a", "b"], appTrue "path" ["b", "c"]]
+            ]
+        )
     assert (appTrue "edge" [s 1, s 2])
     assert (appTrue "edge" [s 2, s 3])
     assert (appTrue "edge" [s 2, s 4])
