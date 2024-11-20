@@ -19,6 +19,7 @@ module Tang.Solver
   , query
   , answer
   , params
+  , assert
   , SolveListM
   , liftS
   , nextS
@@ -34,6 +35,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT (..), ask, asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
+import Control.Placeholder (todo)
 import Data.Bifunctor (second)
 import Data.Foldable (for_, toList)
 import Data.Functor.Foldable (cata)
@@ -457,6 +459,9 @@ answer funcName argNames = do
 
 params :: (MonadIO m) => Params -> SolveT m ()
 params = mkParams >=> Z.fixedpointSetParams
+
+assert :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
+assert vars body = todo
 
 -- private
 push :: (MonadIO m) => SolveT m LocalSt

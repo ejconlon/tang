@@ -10,7 +10,6 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (MonadReader (..), asks)
 import Control.Monad.State.Strict (StateT, gets, modify', runStateT, state)
 import Control.Monad.Trans.Except (runExceptT)
-import Control.Placeholder (todo)
 import Data.Foldable (foldl', for_, toList)
 import Data.Maybe (fromMaybe)
 import Data.Sequence (Seq (..))
@@ -456,6 +455,3 @@ enumStepGuarded = goGuarded
         -- Merge enumerations of all child branches
         -- Each branch uses the same sid and state is preserved between them
         for_ (ILS.toList xs) (goUnguarded sid)
-      NodeClone _xid ->
-        -- We must unfold the graph here
-        todo

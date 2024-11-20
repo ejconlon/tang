@@ -120,7 +120,8 @@ data Node f c
   = NodeSymbol !(SymbolNode f c)
   | NodeUnion !(IntLikeSet NodeId)
   | NodeIntersect !(IntLikeSet NodeId)
-  | NodeClone !NodeId
+
+-- \| NodeClone !NodeId
 
 deriving stock instance (Eq c, Eq (f NodeId)) => Eq (Node f c)
 
@@ -138,7 +139,8 @@ nodeMapSymM f = \case
   NodeSymbol sn -> fmap NodeSymbol (f sn)
   NodeUnion xs -> pure (NodeUnion xs)
   NodeIntersect xs -> pure (NodeIntersect xs)
-  NodeClone n -> pure (NodeClone n)
+
+-- NodeClone n -> pure (NodeClone n)
 
 type NodeMap f c = IntLikeMap NodeId (Node f c)
 
@@ -204,10 +206,10 @@ addNode b = do
   addNode' a b
   pure a
 
-addRecursive :: (GraphC f c s m) => (m NodeId -> m a) -> m a
-addRecursive f = do
-  a <- mkFreshNodeId
-  f (mkFreshNodeId >>= \c -> c <$ addNode' c (NodeClone a))
+-- addRecursive :: (GraphC f c s m) => (m NodeId -> m a) -> m a
+-- addRecursive f = do
+--   a <- mkFreshNodeId
+--   f (mkFreshNodeId >>= \c -> c <$ addNode' c (NodeClone a))
 
 addSymbol :: (Traversable f, GraphC f c s m) => f Edge -> Set c -> m NodeId
 addSymbol fe cs =

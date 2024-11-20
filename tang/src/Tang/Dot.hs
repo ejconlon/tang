@@ -108,8 +108,8 @@ renderNodeGraph g f root (NodeGraph _ nm _) = do
             ("", Nothing, unionNodeAttrs)
           NodeIntersect _ -> do
             ("", Nothing, intersectNodeAttrs)
-          NodeClone _ -> do
-            ("", Nothing, cloneNodeAttrs)
+        -- NodeClone _ -> do
+        --   ("", Nothing, cloneNodeAttrs)
         attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)
     renderNode nid nlab mxlab attrs'
   -- Emit edges
@@ -129,7 +129,7 @@ renderNodeGraph g f root (NodeGraph _ nm _) = do
         for_ (ILS.toList js) $ \j -> do
           let cidb = fromShowable (unNodeId j)
           renderEdge nid cidb Nothing normalEdgeAttrs
-      NodeClone j -> do
-        let cidb = fromShowable (unNodeId j)
-        renderEdge nid cidb Nothing cloneEdgeAttrs
+  -- NodeClone j -> do
+  --   let cidb = fromShowable (unNodeId j)
+  --   renderEdge nid cidb Nothing cloneEdgeAttrs
   renderBuilder "}\n"
