@@ -142,6 +142,7 @@ data Err
   | ErrReflect !String
   | ErrArityMismatch !String !Int !Int
   | ErrNotIntTy !Ty
+  | ErrVar !VarErr
   deriving stock (Eq, Ord, Show)
 
 instance Exception Err
@@ -299,6 +300,7 @@ mkTmF env = \case
     sort' <- mkIntSort ty
     Z.mkInt x sort'
   TmEqF x y -> Z.mkEq x y
+  TmLtF x y -> Z.mkLt x y
   TmNotF x -> Z.mkNot x
   TmIteF x y z -> Z.mkIte x y z
   TmIffF x y -> Z.mkIff x y
@@ -383,6 +385,9 @@ reflectTm env = go
           "=" -> f 2 $ case args of
             [a1, a2] -> TmEq a1 a2
             _ -> error "impossible"
+          "<" -> f 2 $ case args of
+            [a1, a2] -> TmLt a1 a2
+            _ -> error "impossible"
           _ -> case args of
             [] -> pure (TmVar name)
             _ -> pure (TmApp name args)
@@ -428,14 +433,24 @@ defTy name mty = do
 defTys :: (MonadIO m) => [String] -> Maybe Ty -> SolveT m ()
 defTys ns mty = traverse_ (`defTy` mty) ns
 
-gatherVars :: (MonadIO m) => Tm -> SolveT m (Map String Ty)
-gatherVars tm0 = execStateT (cata go tm0) Map.empty
+data VarErr = VarErr !String !Ty !Ty
+  deriving stock (Eq, Ord, Show)
+
+gatherVars :: (MonadIO m) => Tm -> SolveT m (Either VarErr (Map String Ty))
+gatherVars tm0 = runExceptT (execStateT (cata go tm0) Map.empty)
  where
   go tm = case tm of
     TmVarF x -> do
-      (ZTmDef (TmDef role _ ty) _) <- lift (getTm x)
+      (ZTmDef (TmDef role _ ty) _) <- lift (lift (getTm x))
       case role of
-        RoleVar -> modify' (Map.insert x ty)
+        RoleVar -> do
+          mty <- gets (Map.lookup x)
+          case mty of
+            Nothing -> modify' (Map.insert x ty)
+            Just ty' ->
+              if ty == ty'
+                then pure ()
+                else throwError (VarErr x ty ty')
         _ -> pure ()
     _ -> sequence_ tm
 
@@ -456,9 +471,10 @@ mkExplicitForall env e = do
 
 mkImplicitForall :: (MonadIO m) => Tm -> SolveT m Z.AST
 mkImplicitForall e = do
-  vars <- gatherVars e
-  let env = mkEnvTo vars
-  mkExplicitForall env e
+  z <- gatherVars e
+  case z of
+    Left ve -> throwError (ErrVar ve)
+    Right vars -> mkExplicitForall (mkEnvTo vars) e
 
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert = mkImplicitForall >=> Z.assert

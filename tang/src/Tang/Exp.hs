@@ -21,6 +21,7 @@ data Tm
   | TmBool !Bool
   | TmInt !Ty !Int
   | TmEq Tm Tm
+  | TmLt Tm Tm
   | TmNot Tm
   | TmIte Tm Tm Tm
   | TmIff Tm Tm
@@ -46,6 +47,3 @@ data TmDef = TmDef ![Ty] !Ty
 -- Nothing means uninterpreted
 newtype TyDef = TyDef (Maybe Ty)
   deriving stock (Eq, Ord, Show)
-
--- data Def = DefTm !TmDef | DefTy !TyDef
---   deriving stock (Eq, Ord, Show)
