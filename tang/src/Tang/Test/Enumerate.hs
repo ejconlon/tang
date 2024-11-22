@@ -3,6 +3,7 @@
 
 module Tang.Test.Enumerate
   ( testEnumerate
+  , exampleX
   , exampleFxx
   , exampleFxxyy
   , buildIxGraph

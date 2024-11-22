@@ -23,7 +23,7 @@ import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Util (forWithIndex_)
 
 ceilLog2 :: Int -> Int
-ceilLog2 n = ceiling @Double @Int (logBase 2 (fromIntegral n))
+ceilLog2 n = max 1 (ceiling @Double @Int (logBase 2 (fromIntegral n)))
 
 toIntTm :: (Coercible y Int) => Ty -> y -> Tm
 toIntTm ty = TmInt ty . coerce
