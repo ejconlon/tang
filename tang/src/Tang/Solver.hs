@@ -30,6 +30,7 @@ module Tang.Solver
   , liftS
   , nextS
   , unfoldS
+  , interp
   )
 where
 
@@ -388,10 +389,13 @@ reflectTm env = go
           "false" -> f 0 (TmBool False)
           "=" -> f 2 $ case args of
             [a1, a2] -> TmEq a1 a2
-            _ -> error "impossible"
+            _ -> error "bad ="
           "<" -> f 2 $ case args of
             [a1, a2] -> TmLt a1 a2
-            _ -> error "impossible"
+            _ -> error "bad <"
+          "if" -> f 3 $ case args of
+            [a1, a2, a3] -> TmIte a1 a2 a3
+            _ -> error "bad if"
           _ -> case args of
             [] -> pure (TmVar name)
             _ -> pure (TmApp name args)
@@ -472,7 +476,7 @@ mkEnvTo = foldl' go Map.empty . zip [0 ..] . Map.toList
 
 mkExplicitForall :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
 mkExplicitForall env e = do
-  liftIO (print env)
+  -- liftIO (print env)
   e' <- mkTm env e
   if Map.null env
     then pure e'
@@ -491,17 +495,17 @@ mkImplicitForall e = do
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert tm = do
   x <- mkImplicitForall tm
-  liftIO (putStrLn "*** Asserting:")
-  y <- Z.astToString x
-  liftIO (putStrLn y)
+  -- liftIO (putStrLn "*** Asserting:")
+  -- y <- Z.astToString x
+  -- liftIO (putStrLn y)
   Z.assert x
 
 assertWith :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
 assertWith vars tm = do
   x <- mkExplicitForall (mkEnvTo (Map.fromList vars)) tm
-  liftIO (putStrLn "*** Asserting:")
-  y <- Z.astToString x
-  liftIO (putStrLn y)
+  -- liftIO (putStrLn "*** Asserting:")
+  -- y <- Z.astToString x
+  -- liftIO (putStrLn y)
   Z.assert x
 
 check :: (MonadIO m) => SolveT m Z.Result

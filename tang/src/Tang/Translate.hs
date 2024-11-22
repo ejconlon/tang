@@ -198,8 +198,8 @@ encodeSymNode dom nid (SymbolNode _ _ _ s@(Symbolic sym chi) _cons) = do
       symTm = encode (symCodec dom) (Just sym)
       maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi))
 
-  liftIO (print s)
-  liftIO (print maxTm)
+  -- liftIO (print s)
+  -- liftIO (print maxTm)
 
   -- Ax: Sanity: The node symbol is not the null symbol
   assert $ TmNot (TmEq "symNull" symTm)
@@ -217,10 +217,10 @@ encodeSymNode dom nid (SymbolNode _ _ _ s@(Symbolic sym chi) _cons) = do
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
-    liftIO (print ix)
-    liftIO (print cixTm)
-    liftIO (print cid)
-    liftIO (print cidTm)
+    -- liftIO (print ix)
+    -- liftIO (print cixTm)
+    -- liftIO (print cid)
+    -- liftIO (print cidTm)
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
 
 -- -- TODO emit assertions for constraints

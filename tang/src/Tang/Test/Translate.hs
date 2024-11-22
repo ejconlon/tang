@@ -5,10 +5,11 @@ module Tang.Test.Translate (testTranslate) where
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_)
+import Data.Maybe (fromJust)
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
-import Tang.Exp (Tm (..), Ty (..))
-import Tang.Solver (SolveSt, assert, check, model, newSolveSt, solve)
+import Tang.Exp (Tm (..), Ty (..), Val (..))
+import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy)
 import Tang.Translate (translate)
@@ -20,14 +21,19 @@ testTranslate =
   testGroup
     "translate"
     [ runTransCase "Fxx" exampleFxx $ \ss -> do
+        let f = TmInt (TyBv 2)
+            g = ValInt (TyBv 2)
         res1 <- solve ss $ do
-          let f = TmInt (TyBv 2)
           assert $ TmEq "nodeRoot" (f 1)
           assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 0])
           assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 1])
           assert $ TmEq (f 2) (TmApp "nodeChild" [f 1, f 2])
           check
         res1 === Z.Sat
+        m <- fmap fromJust (solve ss model)
+        -- Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 2])
+        -- liftIO (pPrint m)
+        pure ()
         -- , runTransCase "Fxxyy" exampleFxxyy (const (pure ()))
     ]
 
@@ -39,21 +45,21 @@ runTransCase name graphM act = testUnit name $ do
     translate (ngNodes graph) root
     check
   -- TODO fixit
-  solvStr <- solve ss Z.solverToString
-  liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
-  when (res0 == Z.Undef) $ do
-    unkStr <- solve ss Z.solverGetReasonUnknown
-    liftIO (putStrLn ("*** Undef reason:\n" ++ unkStr))
-  when (res0 == Z.Unsat) $ do
-    core <- solve ss Z.getUnsatCore
-    if null core
-      then liftIO (putStrLn "*** No unsat core")
-      else do
-        liftIO (putStrLn "*** Unsat core:")
-        for_ core $ \c -> do
-          x <- solve ss (Z.astToString c)
-          liftIO (putStrLn x)
+  -- solvStr <- solve ss Z.solverToString
+  -- liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
+  -- when (res0 == Z.Undef) $ do
+  --   unkStr <- solve ss Z.solverGetReasonUnknown
+  --   liftIO (putStrLn ("*** Undef reason:\n" ++ unkStr))
+  -- when (res0 == Z.Unsat) $ do
+  --   core <- solve ss Z.getUnsatCore
+  --   if null core
+  --     then liftIO (putStrLn "*** No unsat core")
+  --     else do
+  --       liftIO (putStrLn "*** Unsat core:")
+  --       for_ core $ \c -> do
+  --         x <- solve ss (Z.astToString c)
+  --         liftIO (putStrLn x)
   res0 === Z.Sat
-  mm <- solve ss model
-  liftIO (pPrint mm)
+  -- mm <- solve ss model
+  -- liftIO (pPrint mm)
   act ss
