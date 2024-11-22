@@ -41,6 +41,7 @@ library
       Tang.Test.Search
       Tang.Test.Solver
       Tang.Test.State
+      Tang.Test.Translate
       Tang.Test.UnionMap
       Tang.Translate
       Tang.UnionMap

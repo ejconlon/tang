@@ -17,7 +17,7 @@ import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Tm (..), Ty (..))
-import Tang.Solver (SolveM, assert, defConst, defFun, defTy)
+import Tang.Solver (SolveM, assert, defConst, defFun, defTy, defVar, defVars)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Util (forWithIndex_)
 
@@ -129,16 +129,20 @@ mkDom dm = Dom (mkNodeCodec dm) (mkSymCodec dm) (mkCixCodec dm)
 preamble :: Dom -> NodeId -> SolveM ()
 preamble (Dom nc sc cc) nr = do
   defTy "nid" (Just (codecTy nc))
-  defTy "sym" (Just (codecTy sc))
+  defTy "sid" (Just (codecTy sc))
   defTy "cix" (Just (codecTy cc))
 
   defConst "nodeNull" "nid"
-  defConst "symNull" "sym"
+  defConst "symNull" "sid"
   defConst "nodeRoot" "nid"
+
+  defVars ["node", "child"] "nid"
+  defVar "index" "cix"
+  defVar "sym" "sid"
 
   defFun "nodeArity" [("node", "nid")] "cix"
   defFun "nodeChild" [("node", "nid"), ("index", "cix")] "nid"
-  defFun "nodeSym" [("node", "nid")] "sym"
+  defFun "nodeSym" [("node", "nid")] "sid"
   defFun "nodeSymChild" [("node", "nid"), ("index", "cix")] "nid"
   defFun "canBeChild" [("node", "nid"), ("index", "cix"), ("child", "nid")] TyBool
 
@@ -153,11 +157,12 @@ preamble (Dom nc sc cc) nr = do
   -- Ax: Root node is relevant
   assert $ TmNot (TmEq "nodeNull" "nodeRoot")
 
-  -- Ax: Child indices must be less than max index
-  assert $
-    TmImplies
-      (TmApp "canBeChild" ["node", "index", "child"])
-      (TmLt "index" (TmApp "nodeArity" ["node"]))
+  -- TODO fix bv lt
+  -- -- Ax: Child indices must be less than max index
+  -- assert $
+  --   TmImplies
+  --     (TmApp "canBeChild" ["node", "index", "child"])
+  --     (TmLt "index" (TmApp "nodeArity" ["node"]))
 
   -- Ax: Child nodes must be possible
   assert $ TmApp "canBeChild" ["node", "index", TmApp "nodeChild" ["node", "index"]]
@@ -181,7 +186,7 @@ preamble (Dom nc sc cc) nr = do
   assert $
     TmIff
       (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]]))
-      (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"]]))
+      (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"], "index"]))
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
 encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do

@@ -5,12 +5,13 @@ module Tang.Test.Enumerate
   ( testEnumerate
   , exampleFxx
   , exampleFxxyy
+  , buildIxGraph
   )
 where
 
 import Control.Exception (throwIO)
 import Control.Monad.Except (runExcept)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (Reader, asks, runReader)
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
@@ -27,6 +28,7 @@ import Tang.Ecta
   , EqCon (..)
   , GraphM
   , IxEqCon
+  , NodeGraph
   , NodeId
   , Seg (..)
   , SegEqCon
@@ -59,6 +61,15 @@ synthDoc (Synth root dag) = runReader (go root) dag
 synthText :: Synth Symbolic -> Text
 synthText = renderStrict . layoutSmart defaultLayoutOptions . synthDoc
 
+buildIxGraph
+  :: (MonadIO m)
+  => GraphM f SegEqCon NodeId
+  -> m (NodeId, NodeGraph f IxEqCon)
+buildIxGraph graph =
+  let (a, ngBySeg) = buildGraph graph
+      ex = runExcept (ngRewriteSeg eqConT ngBySeg)
+  in  either (liftIO . throwIO) (pure . (a,)) ex
+
 data EnumCase where
   EnumCase
     :: (Alignable e f)
@@ -70,13 +81,9 @@ data EnumCase where
 
 runEnumCase :: EnumCase -> TestTree
 runEnumCase (EnumCase name strat graph kont) =
-  testUnit name $
-    let (root, ngBySeg) = buildGraph graph
-    in  case runExcept (ngRewriteSeg eqConT ngBySeg) of
-          Left e -> liftIO (throwIO e)
-          Right ngByIx -> do
-            let x = enumerate strat root ngByIx
-            kont x
+  testUnit name $ do
+    (root, ngByIx) <- buildIxGraph graph
+    kont (enumerate strat root ngByIx)
 
 mkSynthCase :: TestName -> [Text] -> GraphM Symbolic SegEqCon NodeId -> EnumCase
 mkSynthCase name results graph =
