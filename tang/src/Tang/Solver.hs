@@ -289,7 +289,8 @@ mkTmF env = \case
     case Map.lookup x env of
       Just (Arg i ty) -> do
         sort' <- getSort ty
-        Z.mkBound i sort'
+        -- NOTE: Bound vars are Debruijn indices
+        Z.mkBound (Map.size env - i - 1) sort'
       Nothing -> do
         ZTmDef (TmDef _ args _) fd' <- getTm x
         case args of
@@ -300,7 +301,7 @@ mkTmF env = \case
     sort' <- mkIntSort ty
     Z.mkInt x sort'
   TmEqF x y -> Z.mkEq x y
-  TmLtF x y -> Z.mkLt x y
+  TmLtF x y -> Z.mkBvult x y -- TODO check type Z.mkLt x y
   TmNotF x -> Z.mkNot x
   TmIteF x y z -> Z.mkIte x y z
   TmIffF x y -> Z.mkIff x y
@@ -461,6 +462,7 @@ mkEnvTo = foldl' go Map.empty . zip [0 ..] . Map.toList
 
 mkExplicitForall :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
 mkExplicitForall env e = do
+  liftIO (print env)
   e' <- mkTm env e
   if Map.null env
     then pure e'
@@ -477,10 +479,20 @@ mkImplicitForall e = do
     Right vars -> mkExplicitForall (mkEnvTo vars) e
 
 assert :: (MonadIO m) => Tm -> SolveT m ()
-assert = mkImplicitForall >=> Z.assert
+assert tm = do
+  x <- mkImplicitForall tm
+  liftIO (putStrLn "*** Asserting:")
+  y <- Z.astToString x
+  liftIO (putStrLn y)
+  Z.assert x
 
 assertWith :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
-assertWith vars = mkExplicitForall (mkEnvTo (Map.fromList vars)) >=> Z.assert
+assertWith vars tm = do
+  x <- mkExplicitForall (mkEnvTo (Map.fromList vars)) tm
+  liftIO (putStrLn "*** Asserting:")
+  y <- Z.astToString x
+  liftIO (putStrLn y)
+  Z.assert x
 
 check :: (MonadIO m) => SolveT m Z.Result
 check = Z.check

@@ -17,7 +17,7 @@ import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Tm (..), Ty (..))
-import Tang.Solver (SolveM, assert, defConst, defFun, defTy, defVar, defVars)
+import Tang.Solver (SolveM, assert, assertWith, defConst, defFun, defTy, defVar, defVars)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Util (forWithIndex_)
 
@@ -157,8 +157,7 @@ preamble (Dom nc sc cc) nr = do
   -- Ax: Root node is relevant
   assert $ TmNot (TmEq "nodeNull" "nodeRoot")
 
-  -- TODO fix bv lt
-  -- -- Ax: Child indices must be less than max index
+  -- Ax: Child indices must be less than max index
   -- assert $
   --   TmImplies
   --     (TmApp "canBeChild" ["node", "index", "child"])
@@ -178,7 +177,7 @@ preamble (Dom nc sc cc) nr = do
 
   -- Ax: If child node has sym defined, then it is a sym child
   assert $
-    TmIff
+    TmImplies
       (TmNot (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]])))
       (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeChild" ["node", "index"]))
 
@@ -206,15 +205,15 @@ encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do
   -- Ax: Concretely define arity
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
-  -- Ax: Each child can have one concrete solution
+  -- -- Ax: Each child can have one concrete solution
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
 
-  -- TODO emit assertions for constraints
-  forWithIndex_ cons $ \_ (EqCon _p1 _p2) ->
-    todo
+-- -- TODO emit assertions for constraints
+-- forWithIndex_ cons $ \_ (EqCon _p1 _p2) ->
+--   todo
 
 encodeUnionNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
 encodeUnionNode dom nid ns = do
