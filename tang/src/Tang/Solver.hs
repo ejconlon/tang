@@ -35,10 +35,10 @@ where
 
 import Control.Applicative (Alternative (..))
 import Control.Exception (Exception, throwIO)
-import Control.Monad ((>=>))
-import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
+import Control.Monad (unless, (>=>))
+import Control.Monad.Except (Except, ExceptT, MonadError (..), runExcept, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader (ReaderT (..), ask, asks)
+import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Control.Monad.State.Strict (MonadState (..), execStateT, gets, modify')
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
@@ -47,13 +47,14 @@ import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
 import Data.Tuple (swap)
 import ListT (ListT, uncons)
-import Tang.Exp (Tm (..), TmF (..), Ty (..))
-import Tang.Util (foldM')
+import Tang.Exp (Tm (..), TmF (..), Ty (..), Val (..), expVal)
+import Tang.Util (andAllM, foldM', orAllM)
 import Z3.Base qualified as ZB
 import Z3.Monad qualified as Z
 import Z3.Opts qualified as ZO
@@ -130,8 +131,8 @@ data SolveSt = St
 
 newSolveSt :: (MonadIO m) => m SolveSt
 newSolveSt = liftIO $ do
-  local <- newIORef initLocalSt
-  fmap (St local) newRemoteSt
+  loc <- newIORef initLocalSt
+  fmap (St loc) newRemoteSt
 
 data Err
   = ErrDupeDef !String
@@ -335,10 +336,12 @@ type EnvTo = Map String (Arg Int)
 
 type EnvFrom = IntMap (Arg String)
 
-mkEnvFrom :: (MonadIO m) => String -> SolveT m EnvFrom
+mkEnvFrom :: (MonadIO m) => String -> SolveT m ([String], EnvFrom)
 mkEnvFrom funcName = do
   ZTmDef (TmDef _ argPairs _) _ <- getTm funcName
-  pure (IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) argPairs)))
+  let names = fmap fst argPairs
+      env = IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) argPairs))
+  pure (names, env)
 
 reflectTy :: (MonadIO m) => Z.Sort -> SolveT m Ty
 reflectTy s = do
@@ -394,13 +397,20 @@ reflectTm env = go
             _ -> pure (TmApp name args)
       Z.Z3_VAR_AST -> do
         i <- Z.getIndexValue t
-        case IntMap.lookup i env of
+        case IntMap.lookup (IntMap.size env - i - 1) env of
           Nothing -> throwError (ErrReflect ("Invalid index: " ++ show t))
           Just (Arg n _) -> pure (TmVar n)
       Z.Z3_NUMERAL_AST -> do
         ty <- Z.getSort t >>= reflectTy
         reflectIntTy ty t
       _ -> throwError (ErrReflect ("Unsupported type: " ++ show k))
+
+reflectVal :: (MonadIO m) => EnvFrom -> Z.AST -> SolveT m Val
+reflectVal env ast = do
+  tm <- reflectTm env ast
+  case expVal tm of
+    Nothing -> throwError (ErrReflect ("Not value: " ++ show ast))
+    Just val -> pure val
 
 defVar :: (MonadIO m) => String -> Ty -> SolveT m ()
 defVar name = defFun' RoleVar name []
@@ -498,26 +508,27 @@ check :: (MonadIO m) => SolveT m Z.Result
 check = Z.check
 
 data FuncEntry = FuncEntry
-  { feArgs :: ![Tm]
-  , feValue :: !Tm
+  { feArgs :: ![Val]
+  , feValue :: !Val
   }
   deriving stock (Eq, Ord, Show)
 
 reflectFuncEntry :: (MonadIO m) => EnvFrom -> Z.FuncEntry -> SolveT m FuncEntry
 reflectFuncEntry env fe = do
   numArgs <- Z.funcEntryGetNumArgs fe
-  args <- traverse (Z.funcEntryGetArg fe >=> reflectTm env) [0 .. numArgs - 1]
-  value <- Z.funcEntryGetValue fe >>= reflectTm env
+  args <- traverse (Z.funcEntryGetArg fe >=> reflectVal env) [0 .. numArgs - 1]
+  value <- Z.funcEntryGetValue fe >>= reflectVal env
   pure (FuncEntry args value)
 
 data FuncInterp = FuncInterp
-  { feEntries :: ![FuncEntry]
-  , feElseCase :: !(Maybe Tm)
+  { fiArgNames :: ![String]
+  , fiEntries :: ![FuncEntry]
+  , fiElseCase :: !(Maybe Tm)
   }
   deriving stock (Eq, Ord, Show)
 
-reflectFuncInterp :: (MonadIO m) => EnvFrom -> Z.FuncInterp -> SolveT m FuncInterp
-reflectFuncInterp env fi = do
+reflectFuncInterp :: (MonadIO m) => [String] -> EnvFrom -> Z.FuncInterp -> SolveT m FuncInterp
+reflectFuncInterp names env fi = do
   numEntries <- Z.funcInterpGetNumEntries fi
   entries <- traverse (Z.funcInterpGetEntry fi >=> reflectFuncEntry env) [0 .. numEntries - 1]
   ec' <- Z.funcInterpGetElse fi
@@ -525,7 +536,7 @@ reflectFuncInterp env fi = do
   ec <- case ecKind' of
     Z.Z3_UNKNOWN_AST -> pure Nothing
     _ -> fmap Just (reflectTm env ec')
-  pure (FuncInterp entries ec)
+  pure (FuncInterp names entries ec)
 
 data Interp = InterpConst !Tm | InterpFunc !FuncInterp
   deriving stock (Eq, Ord, Show)
@@ -557,8 +568,8 @@ reflectMod m = do
         Nothing -> pure o
         Just y -> do
           name <- Z.getDeclName x >>= Z.getSymbolString
-          env <- mkEnvFrom name
-          z <- reflectFuncInterp env y
+          (names, env) <- mkEnvFrom name
+          z <- reflectFuncInterp names env y
           pure (Map.insert name (InterpFunc z) o)
 
 model :: (MonadIO m) => SolveT m (Maybe Model)
@@ -611,3 +622,60 @@ unfoldS b0 m0 f = push >>= \ls -> go b0 m0 >>= \bx -> bx <$ pop ls
         case f b1 a of
           Left b2 -> go b2 m2
           Right b2 -> pure b2
+
+valSameTy :: Val -> Val -> Bool
+valSameTy (ValBool _) (ValBool _) = True
+valSameTy (ValInt ty1 _) (ValInt ty2 _) = ty1 == ty2
+valSameTy _ _ = False
+
+guardValSameTy :: (MonadError String m) => Val -> Val -> m ()
+guardValSameTy v1 v2 =
+  unless
+    (valSameTy v1 v1)
+    (throwError ("Val tys differ: " ++ show v1 ++ " " ++ show v2))
+
+valAsBool :: (MonadError String m) => Val -> m Bool
+valAsBool = \case
+  ValBool b -> pure b
+  v -> throwError ("Not bool: " ++ show v)
+
+addVals :: [String] -> [Val] -> Map String Val -> Map String Val
+addVals names vs m0 = foldl' (\m (n, v) -> Map.insert n v m) m0 (zip names vs)
+
+interp :: Model -> Tm -> Either String Val
+interp m = runExcept . flip runReaderT Map.empty . goTop
+ where
+  goTop :: Tm -> ReaderT (Map String Val) (Except String) Val
+  goTop = cata (sequence >=> goRec)
+  goRec :: TmF Val -> ReaderT (Map String Val) (Except String) Val
+  goRec = \case
+    TmVarF n -> do
+      mv <- asks (Map.lookup n)
+      case mv of
+        Just v -> pure v
+        Nothing -> case Map.lookup n m of
+          Just (InterpConst tm) -> goTop tm
+          _ -> throwError ("Var not found: " ++ n)
+    TmAppF n vs -> do
+      case Map.lookup n m of
+        Just (InterpFunc (FuncInterp names entries mec)) -> do
+          unless (length names == length vs) $
+            throwError ("Bad app arity for " ++ n)
+          case find (\(FuncEntry ws _) -> ws == vs) entries of
+            Just (FuncEntry _ v) -> pure v
+            Nothing -> case mec of
+              Nothing -> throwError ("Func entry not found for " ++ n)
+              Just ec -> local (addVals names vs) (goTop ec)
+        _ -> throwError ("Func not found: " ++ n)
+    TmBoolF b -> pure (ValBool b)
+    TmIntF ty i -> pure (ValInt ty i)
+    TmEqF v1 v2 -> ValBool (v1 == v2) <$ guardValSameTy v1 v2
+    TmLtF v1 v2 -> ValBool (v1 < v2) <$ guardValSameTy v1 v2
+    TmNotF v -> fmap (ValBool . not) (valAsBool v)
+    TmIteF v1 v2 v3 -> fmap (\b1 -> if b1 then v2 else v3) (valAsBool v1)
+    TmIffF v1 v2 -> liftA2 (\b1 b2 -> ValBool (b1 == b2)) (valAsBool v1) (valAsBool v2)
+    TmImpliesF v1 v2 -> liftA2 (\b1 b2 -> ValBool (not b1 || b2)) (valAsBool v1) (valAsBool v2)
+    TmAndF vs -> fmap ValBool (andAllM valAsBool vs)
+    TmOrF vs -> fmap ValBool (orAllM valAsBool vs)
+    TmXorF _ _ -> undefined
+    TmDistinctF _ -> undefined

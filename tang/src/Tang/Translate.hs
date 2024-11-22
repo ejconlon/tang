@@ -3,6 +3,7 @@
 module Tang.Translate where
 
 import Control.Monad ((>=>))
+import Control.Monad.IO.Class (liftIO)
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
 import Data.Foldable (foldl', traverse_)
@@ -115,7 +116,7 @@ maxArity = foldl' (\a -> max a . ar) 0 . ILM.elems
 mkCixCodec :: DomMap -> Codec ChildIx
 mkCixCodec dm =
   let mar = maxArity dm
-  in  codecInt @ChildIx mar convInt
+  in  codecInt @ChildIx (mar + 1) convInt
 
 data Dom = Dom
   { nodeCodec :: !NodeCodec
@@ -157,22 +158,26 @@ preamble (Dom nc sc cc) nr = do
   -- Ax: Root node is relevant
   assert $ TmNot (TmEq "nodeNull" "nodeRoot")
 
-  -- Ax: Child indices must be less than max index
-  -- assert $
-  --   TmImplies
-  --     (TmApp "canBeChild" ["node", "index", "child"])
-  --     (TmLt "index" (TmApp "nodeArity" ["node"]))
+  -- Ax: Irrelevant nodes have irrelevant children
+  assert $
+    TmImplies
+      (TmEq "nodeNull" "node")
+      (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"]))
+
+  -- Ax: Relevant nodes have relevant children (less than arity)
+  assert $
+    TmIff
+      ( TmAnd
+          [ TmNot (TmEq "nodeNull" "node")
+          , TmLt "index" (TmApp "nodeArity" ["node"])
+          ]
+      )
+      (TmNot (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"])))
 
   -- Ax: Child nodes must be possible
   assert $ TmApp "canBeChild" ["node", "index", TmApp "nodeChild" ["node", "index"]]
 
-  -- Ax: Relevant nodes have relevant children and vice versa
-  assert $
-    TmIff
-      (TmEq "nodeNull" "node")
-      (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"]))
-
-  -- Ax: Any node can be irrelevant
+  -- Ax: It is possible for any child node to be irrelevant
   assert $ TmApp "canBeChild" ["node", "index", "nodeNull"]
 
   -- Ax: If child node has sym defined, then it is a sym child
@@ -188,10 +193,13 @@ preamble (Dom nc sc cc) nr = do
       (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"], "index"]))
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
-encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do
+encodeSymNode dom nid (SymbolNode _ _ _ s@(Symbolic sym chi) _cons) = do
   let nidTm = encode (nodeCodec dom) (Just nid)
       symTm = encode (symCodec dom) (Just sym)
-      maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi - 1))
+      maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi))
+
+  liftIO (print s)
+  liftIO (print maxTm)
 
   -- Ax: Sanity: The node symbol is not the null symbol
   assert $ TmNot (TmEq "symNull" symTm)
@@ -205,10 +213,14 @@ encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do
   -- Ax: Concretely define arity
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
-  -- -- Ax: Each child can have one concrete solution
+  -- Ax: Each child can have one concrete solution
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
+    liftIO (print ix)
+    liftIO (print cixTm)
+    liftIO (print cid)
+    liftIO (print cidTm)
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
 
 -- -- TODO emit assertions for constraints
@@ -218,6 +230,7 @@ encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do
 encodeUnionNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
 encodeUnionNode dom nid ns = do
   let nidTm = encode (nodeCodec dom) (Just nid)
+      maxTm = encode (cixCodec dom) 1
       zeroTm = encode (cixCodec dom) 0
 
   -- Ax: Sanity: The node id is not the null id
@@ -225,6 +238,9 @@ encodeUnionNode dom nid ns = do
 
   -- Ax: The node sym is the null sym
   assert $ TmEq "symNull" (TmApp "nodeSym" [nidTm])
+
+  -- Ax: Concretely define arity
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
   -- Ax: Any of the concrete nodes can be a child
   forWithIndex_ (ILS.toList ns) $ \_ cid -> do

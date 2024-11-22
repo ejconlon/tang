@@ -1,26 +1,39 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Tang.Test.Translate (testTranslate) where
 
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_)
-import PropUnit (TestTree, testGroup, testUnit, (===))
-import Tang.Ecta (NodeGraph (..))
-import Tang.Solver (check, newSolveSt, solve)
+import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
+import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
+import Tang.Exp (Tm (..), Ty (..))
+import Tang.Solver (SolveSt, assert, check, model, newSolveSt, solve)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy)
 import Tang.Translate (translate)
+import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
 
 testTranslate :: TestTree
 testTranslate =
   testGroup
     "translate"
-    [ testTransFxx
+    [ runTransCase "Fxx" exampleFxx $ \ss -> do
+        res1 <- solve ss $ do
+          let f = TmInt (TyBv 2)
+          assert $ TmEq "nodeRoot" (f 1)
+          assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 0])
+          assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 1])
+          assert $ TmEq (f 2) (TmApp "nodeChild" [f 1, f 2])
+          check
+        res1 === Z.Sat
+        -- , runTransCase "Fxxyy" exampleFxxyy (const (pure ()))
     ]
 
-testTransFxx :: TestTree
-testTransFxx = testUnit "Fxx" $ do
-  (root, graph) <- buildIxGraph exampleFxx
+runTransCase :: TestName -> GraphM Symbolic SegEqCon NodeId -> (SolveSt -> PropertyT IO ()) -> TestTree
+runTransCase name graphM act = testUnit name $ do
+  (root, graph) <- buildIxGraph graphM
   ss <- newSolveSt
   res0 <- solve ss $ do
     translate (ngNodes graph) root
@@ -41,4 +54,6 @@ testTransFxx = testUnit "Fxx" $ do
           x <- solve ss (Z.astToString c)
           liftIO (putStrLn x)
   res0 === Z.Sat
-  pure ()
+  mm <- solve ss model
+  liftIO (pPrint mm)
+  act ss

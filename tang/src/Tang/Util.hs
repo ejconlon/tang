@@ -24,13 +24,13 @@ newtype IxM m a = IxM {unIxM :: Int -> IxPair (m a)}
 instance (Applicative m) => Applicative (IxM m) where
   pure a = IxM (\i -> IxPair i (pure a))
   IxM x <*> IxM y = IxM $ \i ->
-    let IxPair _ xx = x i
-        IxPair j yy = y i
-    in  IxPair j (xx <*> yy)
+    let IxPair j xx = x i
+        IxPair k yy = y j
+    in  IxPair k (xx <*> yy)
   liftA2 f (IxM x) (IxM y) = IxM $ \i ->
-    let IxPair _ xx = x i
-        IxPair j yy = y i
-    in  IxPair j (liftA2 f xx yy)
+    let IxPair j xx = x i
+        IxPair k yy = y j
+    in  IxPair k (liftA2 f xx yy)
 
 traverseWithIndex :: (Traversable f, Applicative m) => (Int -> a -> m b) -> f a -> m (f b)
 traverseWithIndex f s =
@@ -57,6 +57,28 @@ seqFromFoldable = Seq.fromList . toList
 
 foldM' :: (Foldable f, Monad m) => b -> f a -> (b -> a -> m b) -> m b
 foldM' b fa f = foldM f b fa
+
+andAllM :: (Foldable f, Monad m) => (a -> m Bool) -> f a -> m Bool
+andAllM f = go . toList
+ where
+  go = \case
+    [] -> pure True
+    a : as -> do
+      b <- f a
+      if b
+        then go as
+        else pure False
+
+orAllM :: (Foldable f, Monad m) => (a -> m Bool) -> f a -> m Bool
+orAllM f = go . toList
+ where
+  go = \case
+    [] -> pure False
+    a : as -> do
+      b <- f a
+      if b
+        then pure True
+        else go as
 
 foldLastM :: (Foldable f, Alternative m) => (x -> m a) -> f x -> m a
 foldLastM f = foldl' (\ma x -> ma *> f x) empty

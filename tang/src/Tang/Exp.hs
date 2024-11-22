@@ -47,3 +47,14 @@ data TmDef = TmDef ![Ty] !Ty
 -- Nothing means uninterpreted
 newtype TyDef = TyDef (Maybe Ty)
   deriving stock (Eq, Ord, Show)
+
+data Val
+  = ValInt !Ty !Int
+  | ValBool !Bool
+  deriving stock (Eq, Ord, Show)
+
+expVal :: Tm -> Maybe Val
+expVal = \case
+  TmBool b -> Just (ValBool b)
+  TmInt ty i -> Just (ValInt ty i)
+  _ -> Nothing
