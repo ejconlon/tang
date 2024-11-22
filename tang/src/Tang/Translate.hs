@@ -5,12 +5,17 @@ module Tang.Translate where
 import Control.Monad ((>=>))
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
-import Data.Foldable (traverse_)
+import Data.Foldable (foldl', traverse_)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Sequence qualified as Seq
 import IntLike.Map qualified as ILM
+import IntLike.Map qualified as IntLikeMap
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Tang.Ecta (ChildIx (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
+import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Tm (..), Ty (..))
 import Tang.Solver (SolveM, assert, defConst, defFun, defTy)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
@@ -74,17 +79,43 @@ type DomMap = NodeMap Symbolic IxEqCon
 type NodeCodec = Codec (Maybe NodeId)
 
 mkNodeCodec :: DomMap -> NodeCodec
-mkNodeCodec = todo
+mkNodeCodec dm =
+  let sz = IntLikeMap.size dm
+  in  codecInt @NodeId (sz + 1) (convNull (coerce sz) convInt)
 
 type SymCodec = Codec (Maybe Symbol)
 
+data SL = SL !Int !(Map Symbol Int) !(IntMap Symbol)
+
+mkSymLookups :: DomMap -> SL
+mkSymLookups = foldl' go (SL 0 Map.empty IntMap.empty) . ILM.elems
+ where
+  go :: SL -> Node Symbolic IxEqCon -> SL
+  go sl@(SL i m n) = \case
+    NodeSymbol (SymbolNode _ _ _ (Symbolic s _) _) ->
+      SL (i + 1) (Map.insert s i m) (IntMap.insert i s n)
+    _ -> sl
+
 mkSymCodec :: DomMap -> SymCodec
-mkSymCodec = todo
+mkSymCodec dm =
+  let SL sz m n = mkSymLookups dm
+      to = (m Map.!)
+      from = flip IntMap.lookup n
+  in  codecInt @Int (sz + 1) (convNull sz (Conv to from))
 
 type CixCodec = Codec ChildIx
 
+maxArity :: DomMap -> Int
+maxArity = foldl' (\a -> max a . ar) 0 . ILM.elems
+ where
+  ar = \case
+    NodeSymbol (SymbolNode i _ _ _ _) -> i
+    _ -> 1
+
 mkCixCodec :: DomMap -> Codec ChildIx
-mkCixCodec = todo
+mkCixCodec dm =
+  let mar = maxArity dm
+  in  codecInt @ChildIx mar convInt
 
 data Dom = Dom
   { nodeCodec :: !NodeCodec
@@ -105,7 +136,7 @@ preamble (Dom nc sc cc) nr = do
   defConst "symNull" "sym"
   defConst "nodeRoot" "nid"
 
-  defFun "nodeMaxIx" [("node", "nid")] "cix"
+  defFun "nodeArity" [("node", "nid")] "cix"
   defFun "nodeChild" [("node", "nid"), ("index", "cix")] "nid"
   defFun "nodeSym" [("node", "nid")] "sym"
   defFun "nodeSymChild" [("node", "nid"), ("index", "cix")] "nid"
@@ -126,7 +157,7 @@ preamble (Dom nc sc cc) nr = do
   assert $
     TmImplies
       (TmApp "canBeChild" ["node", "index", "child"])
-      (TmLt "index" (TmApp "nodeMaxIx" ["node"]))
+      (TmLt "index" (TmApp "nodeArity" ["node"]))
 
   -- Ax: Child nodes must be possible
   assert $ TmApp "canBeChild" ["node", "index", TmApp "nodeChild" ["node", "index"]]
@@ -152,9 +183,8 @@ preamble (Dom nc sc cc) nr = do
       (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]]))
       (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"]]))
 
--- TODO emit assertions for constraints
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
-encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) _cons) = do
+encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) cons) = do
   let nidTm = encode (nodeCodec dom) (Just nid)
       symTm = encode (symCodec dom) (Just sym)
       maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi - 1))
@@ -168,14 +198,18 @@ encodeSymNode dom nid (SymbolNode _ _ _ (Symbolic sym chi) _cons) = do
   -- Ax: Concretely define node symbol
   assert $ TmEq (TmApp "nodeSym" [nidTm]) symTm
 
-  -- Ax: Concretely define max index
-  assert $ TmEq (TmApp "nodeMaxIx" [nidTm]) maxTm
+  -- Ax: Concretely define arity
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
   -- Ax: Each child can have one concrete solution
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
+
+  -- TODO emit assertions for constraints
+  forWithIndex_ cons $ \_ (EqCon _p1 _p2) ->
+    todo
 
 encodeUnionNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
 encodeUnionNode dom nid ns = do
