@@ -35,10 +35,11 @@ caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
     assert $ TmEq (f 2) (TmApp "nodeChild" [f 1, f 2])
     check
   res1 === Z.Sat
-
--- m <- fmap fromJust (solve ss model)
--- Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 2])
--- liftIO (pPrint m)
+  m <- fmap fromJust (solve ss model)
+  -- liftIO (pPrint m)
+  Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 0])
+  Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 1])
+  Right (g 2) === interp m (TmApp "nodeChild" [f 1, f 2])
 
 caseFxxyy :: TransCase
 caseFxxyy = TransCase "Fxxyy" exampleFxxyy $ \ss -> do

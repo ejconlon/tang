@@ -16,6 +16,6 @@ main = testMain $ \_ ->
     -- , testSearch
     -- , testEnumerate
     -- , testDot
-    -- , testSolver
-    [ testTranslate
+    [ testSolver
+    , testTranslate
     ]

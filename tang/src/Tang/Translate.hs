@@ -155,10 +155,10 @@ preamble (Dom nc sc cc) nr = do
   -- Ax: Null node has null sym
   assert $ TmEq (TmApp "nodeSym" ["nodeNull"]) "symNull"
 
-  -- Ax: Root node is relevant
-  assert $ TmNot (TmEq "nodeNull" "nodeRoot")
+  -- Ax: Null node is nullary
+  assert $ TmEq (TmApp "nodeArity" ["nodeNull"]) (encode cc 0)
 
-  -- Ax: Irrelevant nodes have irrelevant children
+  -- Ax: Null node has null children
   assert $
     TmImplies
       (TmEq "nodeNull" "node")
@@ -173,6 +173,9 @@ preamble (Dom nc sc cc) nr = do
           ]
       )
       (TmNot (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"])))
+
+  -- Ax: Root node is relevant
+  assert $ TmNot (TmEq "nodeNull" "nodeRoot")
 
   -- Ax: Child nodes must be possible
   assert $ TmApp "canBeChild" ["node", "index", TmApp "nodeChild" ["node", "index"]]

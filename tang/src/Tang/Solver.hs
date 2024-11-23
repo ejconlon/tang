@@ -291,8 +291,7 @@ mkTmF env = \case
     case Map.lookup x env of
       Just (Arg i ty) -> do
         sort' <- getSort ty
-        -- NOTE: Bound vars are Debruijn indices
-        Z.mkBound (Map.size env - i - 1) sort'
+        Z.mkBound i sort'
       Nothing -> do
         ZTmDef (TmDef _ args _) fd' <- getTm x
         case args of
@@ -341,7 +340,7 @@ mkEnvFrom :: (MonadIO m) => String -> SolveT m ([String], EnvFrom)
 mkEnvFrom funcName = do
   ZTmDef (TmDef _ argPairs _) _ <- getTm funcName
   let names = fmap fst argPairs
-      env = IntMap.fromAscList (zip [0 ..] (fmap (uncurry Arg) argPairs))
+      env = IntMap.fromList (zip [0 ..] (fmap (uncurry Arg) argPairs))
   pure (names, env)
 
 reflectTy :: (MonadIO m) => Z.Sort -> SolveT m Ty
@@ -401,7 +400,7 @@ reflectTm env = go
             _ -> pure (TmApp name args)
       Z.Z3_VAR_AST -> do
         i <- Z.getIndexValue t
-        case IntMap.lookup (IntMap.size env - i - 1) env of
+        case IntMap.lookup i env of
           Nothing -> throwError (ErrReflect ("Invalid index: " ++ show t))
           Just (Arg n _) -> pure (TmVar n)
       Z.Z3_NUMERAL_AST -> do
@@ -470,12 +469,13 @@ gatherVars tm0 = runExceptT (execStateT (cata go tm0) Map.empty)
     _ -> sequence_ tm
 
 mkEnvTo :: Map String Ty -> EnvTo
-mkEnvTo = foldl' go Map.empty . zip [0 ..] . Map.toList
+mkEnvTo = foldl' go Map.empty . zip [0 ..] . reverse . Map.toList
  where
   go m (i, (k, ty)) = Map.insert k (Arg i ty) m
 
 mkExplicitForall :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
 mkExplicitForall env e = do
+  -- liftIO (print (Map.keys env))
   -- liftIO (print env)
   e' <- mkTm env e
   if Map.null env
