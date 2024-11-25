@@ -61,7 +61,6 @@ runTransCase (TransCase name graphM act) = testUnit name $ do
   res0 <- solve ss $ do
     translate (ngNodes graph) root
     check
-  -- TODO fixit
   -- solvStr <- solve ss Z.solverToString
   -- liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
   -- when (res0 == Z.Undef) $ do

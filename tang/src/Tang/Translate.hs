@@ -3,14 +3,17 @@
 module Tang.Translate where
 
 import Control.Monad ((>=>))
-import Control.Monad.IO.Class (liftIO)
+-- import Control.Monad.IO.Class (liftIO)
+
+import Control.Monad.State.Strict (State, execState, state)
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
-import Data.Foldable (foldl', traverse_)
+import Data.Foldable (foldl', toList, traverse_)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import IntLike.Map qualified as ILM
 import IntLike.Map qualified as IntLikeMap
@@ -196,7 +199,7 @@ preamble (Dom nc sc cc) nr = do
       (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"], "index"]))
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
-encodeSymNode dom nid (SymbolNode _ _ _ s@(Symbolic sym chi) _cons) = do
+encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
   let nidTm = encode (nodeCodec dom) (Just nid)
       symTm = encode (symCodec dom) (Just sym)
       maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi))
@@ -226,9 +229,34 @@ encodeSymNode dom nid (SymbolNode _ _ _ s@(Symbolic sym chi) _cons) = do
     -- liftIO (print cidTm)
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
 
--- -- TODO emit assertions for constraints
--- forWithIndex_ cons $ \_ (EqCon _p1 _p2) ->
---   todo
+  -- Emit assertions for constraints
+  forWithIndex_ cons $ \_ (EqCon p1 p2) -> do
+    let (v1, c1, t1) = unroll dom "x" nidTm p1
+        (v2, c2, t2) = unroll dom "y" nidTm p2
+        v3 = fmap (,"nid") (toList (v1 <> v2))
+        t3 = TmImplies (TmAnd (toList (c1 <> c2))) (TmEq t1 t2)
+    assertWith v3 t3
+
+data S = S !String !Int !(Seq String) !(Seq Tm) !Tm
+
+unroll :: Dom -> String -> Tm -> Seq ChildIx -> (Seq String, Seq Tm, Tm)
+unroll dom pre tm path =
+  case execState (unrollS dom tm path) (S pre 0 Seq.empty Seq.empty tm) of
+    S _ _ vs cs tm' -> (vs, cs, tm')
+
+unrollS :: Dom -> Tm -> Seq ChildIx -> State S ()
+unrollS dom tm = \case
+  Empty -> pure ()
+  ix :<| path' -> do
+    tm' <- state $ \(S a b c d _) ->
+      let f = a ++ show b
+          tm' = TmVar f
+          tm'' = encode (cixCodec dom) ix
+          tm''' = TmApp "nodeSymChild" [tm, tm'']
+          d' = d :|> TmEq tm' tm'''
+          s' = S a (b + 1) (c :|> f) d' tm'
+      in  (tm', s')
+    unrollS dom tm' path'
 
 encodeUnionNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
 encodeUnionNode dom nid ns = do
