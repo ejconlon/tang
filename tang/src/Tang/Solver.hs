@@ -30,6 +30,11 @@ module Tang.Solver
   , liftS
   , nextS
   , unfoldS
+  , InterpEnv
+  , InterpM
+  , runInterpM
+  , interpM
+  , interpFM
   , interp
   )
 where
@@ -643,43 +648,60 @@ valAsBool = \case
   ValBool b -> pure b
   v -> throwError ("Not bool: " ++ show v)
 
-addVals :: [String] -> [Val] -> Map String Val -> Map String Val
-addVals names vs m0 = foldl' (\m (n, v) -> Map.insert n v m) m0 (zip names vs)
+data InterpEnv = InterpEnv
+  { ieModel :: !Model
+  , ieVars :: !(Map String Val)
+  }
+  deriving stock (Eq, Ord, Show)
+
+bindVars :: [String] -> [Val] -> InterpEnv -> InterpEnv
+bindVars names vs (InterpEnv m v0) =
+  let v1 = foldl' (\vi (n, v) -> Map.insert n v vi) v0 (zip names vs)
+  in  InterpEnv m v1
+
+type InterpM = ReaderT InterpEnv (Except String)
+
+runInterpM :: InterpM a -> InterpEnv -> Either String a
+runInterpM m = runExcept . runReaderT m
+
+interpM :: Tm -> InterpM Val
+interpM = cata (sequence >=> interpFM)
+
+interpFM :: TmF Val -> InterpM Val
+interpFM = \case
+  TmVarF n -> do
+    mv <- asks (Map.lookup n . ieVars)
+    case mv of
+      Just v -> pure v
+      Nothing -> do
+        mx <- asks (Map.lookup n . ieModel)
+        case mx of
+          Just (InterpConst tm) -> interpM tm
+          _ -> throwError ("Var not found: " ++ n)
+  TmAppF n vs -> do
+    mx <- asks (Map.lookup n . ieModel)
+    case mx of
+      Just (InterpFunc (FuncInterp names entries mec)) -> do
+        unless (length names == length vs) $
+          throwError ("Bad app arity for " ++ n)
+        case find (\(FuncEntry ws _) -> ws == vs) entries of
+          Just (FuncEntry _ v) -> pure v
+          Nothing -> case mec of
+            Nothing -> throwError ("Func entry not found for " ++ n)
+            Just ec -> local (bindVars names vs) (interpM ec)
+      _ -> throwError ("Func not found: " ++ n)
+  TmBoolF b -> pure (ValBool b)
+  TmIntF ty i -> pure (ValInt ty i)
+  TmEqF v1 v2 -> ValBool (v1 == v2) <$ guardValSameTy v1 v2
+  TmLtF v1 v2 -> ValBool (v1 < v2) <$ guardValSameTy v1 v2
+  TmNotF v -> fmap (ValBool . not) (valAsBool v)
+  TmIteF v1 v2 v3 -> fmap (\b1 -> if b1 then v2 else v3) (valAsBool v1)
+  TmIffF v1 v2 -> liftA2 (\b1 b2 -> ValBool (b1 == b2)) (valAsBool v1) (valAsBool v2)
+  TmImpliesF v1 v2 -> liftA2 (\b1 b2 -> ValBool (not b1 || b2)) (valAsBool v1) (valAsBool v2)
+  TmAndF vs -> fmap ValBool (andAllM valAsBool vs)
+  TmOrF vs -> fmap ValBool (orAllM valAsBool vs)
+  TmXorF _ _ -> error "TODO - interp xor"
+  TmDistinctF _ -> error "TODO - interp distinct"
 
 interp :: Model -> Tm -> Either String Val
-interp m = runExcept . flip runReaderT Map.empty . goTop
- where
-  goTop :: Tm -> ReaderT (Map String Val) (Except String) Val
-  goTop = cata (sequence >=> goRec)
-  goRec :: TmF Val -> ReaderT (Map String Val) (Except String) Val
-  goRec = \case
-    TmVarF n -> do
-      mv <- asks (Map.lookup n)
-      case mv of
-        Just v -> pure v
-        Nothing -> case Map.lookup n m of
-          Just (InterpConst tm) -> goTop tm
-          _ -> throwError ("Var not found: " ++ n)
-    TmAppF n vs -> do
-      case Map.lookup n m of
-        Just (InterpFunc (FuncInterp names entries mec)) -> do
-          unless (length names == length vs) $
-            throwError ("Bad app arity for " ++ n)
-          case find (\(FuncEntry ws _) -> ws == vs) entries of
-            Just (FuncEntry _ v) -> pure v
-            Nothing -> case mec of
-              Nothing -> throwError ("Func entry not found for " ++ n)
-              Just ec -> local (addVals names vs) (goTop ec)
-        _ -> throwError ("Func not found: " ++ n)
-    TmBoolF b -> pure (ValBool b)
-    TmIntF ty i -> pure (ValInt ty i)
-    TmEqF v1 v2 -> ValBool (v1 == v2) <$ guardValSameTy v1 v2
-    TmLtF v1 v2 -> ValBool (v1 < v2) <$ guardValSameTy v1 v2
-    TmNotF v -> fmap (ValBool . not) (valAsBool v)
-    TmIteF v1 v2 v3 -> fmap (\b1 -> if b1 then v2 else v3) (valAsBool v1)
-    TmIffF v1 v2 -> liftA2 (\b1 b2 -> ValBool (b1 == b2)) (valAsBool v1) (valAsBool v2)
-    TmImpliesF v1 v2 -> liftA2 (\b1 b2 -> ValBool (not b1 || b2)) (valAsBool v1) (valAsBool v2)
-    TmAndF vs -> fmap ValBool (andAllM valAsBool vs)
-    TmOrF vs -> fmap ValBool (orAllM valAsBool vs)
-    TmXorF _ _ -> undefined
-    TmDistinctF _ -> undefined
+interp m = flip runInterpM (InterpEnv m Map.empty) . interpM

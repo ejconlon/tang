@@ -49,3 +49,7 @@ lint-apply:
 dot:
   cd tang/dot
   find . -type f -name "*.dot" | xargs dot -Tpng -O
+
+# Run just the given subset of tests
+drill pat:
+  {{ stack_build }} --test --ta="-j 1 -p {{ pat }}"

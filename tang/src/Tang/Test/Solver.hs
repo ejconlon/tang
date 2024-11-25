@@ -3,9 +3,22 @@
 module Tang.Test.Solver where
 
 import Data.Map.Strict qualified as Map
-import PropUnit (TestTree, testGroup, testUnit, (===))
-import Tang.Exp (Tm (..), Ty (..), tmBv)
-import Tang.Solver (Interp (..), assert, check, defConst, defFun, defFuns, defTy, defVars, model, newSolveSt, solve)
+import PropUnit (PropertyT, TestTree, testGroup, testUnit, (===))
+import Tang.Exp (Tm (..), Ty (..), Val (..), tmBv)
+import Tang.Solver
+  ( Interp (..)
+  , assert
+  , check
+  , defConst
+  , defFun
+  , defFuns
+  , defTy
+  , defVars
+  , interp
+  , model
+  , newSolveSt
+  , solve
+  )
 import Z3.Base qualified as Z
 
 testSolver :: TestTree
@@ -14,6 +27,7 @@ testSolver =
     "solver"
     [ testSolve1
     , testSolve2
+    , testInterp
     ]
 
 testSolve1 :: TestTree
@@ -75,3 +89,22 @@ testSolve2 = testUnit "rules2" $ do
     assert (TmIff (isTrue "q4") (appTrue "q3" [s 2]))
     model
   modConstEq mm3 "q4" (TmBool True)
+
+assertLeft :: (Show a) => Either e a -> PropertyT IO ()
+assertLeft = \case
+  Left _ -> pure ()
+  Right a -> fail ("Expected Left, got Right: " ++ show a)
+
+assertRight :: (Show e) => Either e a -> PropertyT IO ()
+assertRight = \case
+  Left e -> fail ("Expected Left, got Right: " ++ show e)
+  Right _ -> pure ()
+
+testInterp :: TestTree
+testInterp = testUnit "interp" $ do
+  let tmI = TmInt (TyBv 2)
+      valI = ValInt (TyBv 2)
+      m1 = Map.singleton "x" (InterpConst (tmI 1))
+  assertLeft (interp mempty "x")
+  interp m1 "x" === Right (valI 1)
+  interp m1 (TmLt "x" "x") === Right (ValBool False)
