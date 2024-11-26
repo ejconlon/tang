@@ -2,7 +2,7 @@
 
 module Tang.Translate where
 
-import Control.Monad ((>=>))
+import Control.Monad (join, (>=>))
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.State.Strict (State, execState, state)
 import Control.Placeholder (todo)
@@ -14,11 +14,14 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Data.Set qualified as Set
+import Debug.Trace (traceM)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Map qualified as IntLikeMap
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
+import Prettyprinter (Doc)
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Conv (..), Tm (..), Ty (..), Val, convInt, convNull, expVal, valExp)
 import Tang.Solver
@@ -37,7 +40,7 @@ import Tang.Solver
   , runInterpM
   , varM
   )
-import Tang.Symbolic (Symbol (..), Symbolic (..))
+import Tang.Symbolic (Symbol (..), Symbolic (..), symPretty)
 import Tang.Util (foldM', forWithIndex_)
 
 ceilLog2 :: Int -> Int
@@ -176,7 +179,10 @@ preamble (Dom nc sc cc) nr = do
   assert $ TmNot (TmEq "nodeNull" "nodeRoot")
 
   -- Ax: Child nodes must be possible
-  assert $ TmApp "canBeChild" ["node", "index", TmApp "nodeChild" ["node", "index"]]
+  assert $
+    TmImplies
+      (TmEq (TmApp "nodeChild" ["node", "index"]) "child")
+      (TmApp "canBeChild" ["node", "index", "child"])
 
   -- Ax: It is possible for any child node to be irrelevant
   assert $ TmApp "canBeChild" ["node", "index", "nodeNull"]
@@ -295,56 +301,75 @@ translate dm nr = do
   encodeMap dom dm
   pure dom
 
-decodeAsVal :: String -> Codec x -> (x -> Maybe y) -> String -> Val -> InterpM y
+decodeAsVal :: String -> Codec x -> (Maybe x -> Maybe y) -> String -> Val -> InterpM y
 decodeAsVal tyName cod exec msg v =
   maybe
-    (throwError ("Error decoding " ++ tyName ++ ": " ++ msg ++ "(" ++ show v ++ ")"))
+    (throwError (unwords ["Error decoding", tyName ++ ":", msg, "(" ++ show v ++ ")"]))
     pure
-    (decode cod (valExp v) >>= exec)
+    (exec (decode cod (valExp v)))
 
 encodeAsVal :: (Show x) => String -> Codec x -> String -> x -> InterpM Val
 encodeAsVal tyName cod msg x =
   maybe
-    (throwError ("Error encoding " ++ tyName ++ ": " ++ msg ++ "(" ++ show x ++ ")"))
+    (throwError (unwords ["Error encoding", tyName ++ ":", msg, "(" ++ show x ++ ")"]))
     pure
     (expVal (encode cod x))
 
-type ExtractMap = IntLikeMap NodeId (Either NodeId (Symbolic NodeId))
+data ExtractMap = ExtractMap
+  { emRoot :: !NodeId
+  , emMap :: IntLikeMap NodeId (Either NodeId (Symbolic NodeId))
+  }
+  deriving stock (Eq, Ord, Show)
 
-extractM :: Dom -> InterpM (NodeId, ExtractMap)
+extractM :: Dom -> InterpM ExtractMap
 extractM d = goTop ILM.empty
  where
-  decodeNid = decodeAsVal "node id" (nodeCodec d) id
-  decodeCix = decodeAsVal "child ix" (cixCodec d) Just
+  decodeNid = decodeAsVal "node id" (nodeCodec d) join
+  decodeCix = decodeAsVal "child ix" (cixCodec d) id
   encodeCix = encodeAsVal "child ix" (cixCodec d)
-  decodeSym = decodeAsVal "symbol" (symCodec d) Just
+  decodeSym msg x = fmap join (decodeAsVal "symbol" (symCodec d) Just msg x)
   goTop m = do
     rootV <- varM "nodeRoot"
     root <- decodeNid "root node" rootV
-    xmap <- goLevel m rootV
-    pure (root, xmap)
-  goLevel m parentV = do
+    (xmap, _) <- goLevel Set.empty m rootV
+    pure (ExtractMap root xmap)
+  goLevel s m parentV = do
     parent <- decodeNid "parent node" parentV
-    ChildIx ar <- decodeCix "node arity" =<< appM "nodeArity" [parentV]
-    if ar >= 0
-      then do
-        msym <- decodeSym "node sym" =<< appM "nodeSym" [parentV]
-        ea <- case msym of
-          Nothing ->
-            if ar == 1
-              then do
-                zeroV <- encodeCix "zero ix" 0
-                choice <- decodeNid "choice node" =<< appM "nodeChild" [parentV, zeroV]
-                pure (Left choice)
-              else throwError ("Bad sym for node: " ++ show parent)
-          Just sym -> do
-            cs <- foldM' Empty [0 .. ar - 1] $ \cs i -> do
-              ixV <- encodeCix "child ix" (ChildIx i)
-              child <- decodeNid "child node" =<< appM "nodeChild" [parentV, ixV]
-              pure (cs :|> child)
-            pure (Right (Symbolic sym cs))
-        pure (ILM.insert parent ea m)
-      else throwError ("Bad arity for node: " ++ show parent)
+    if Set.member parent s
+      then pure (m, s)
+      else do
+        let s' = Set.insert parent s
+        ChildIx ar <- decodeCix "node arity" =<< appM "nodeArity" [parentV]
+        if ar >= 0
+          then do
+            msym <- decodeSym "node sym" =<< appM "nodeSym" [parentV]
+            (ea, m'', s'') <- case msym of
+              Nothing ->
+                if ar == 1
+                  then do
+                    zeroV <- encodeCix "zero ix" 0
+                    choiceV <- appM "nodeChild" [parentV, zeroV]
+                    choice <- decodeNid "choice node" choiceV
+                    (m'', s'') <- goLevel s' m choiceV
+                    pure (Left choice, m'', s'')
+                  else throwError ("Bad sym for node: " ++ show parent)
+              Just sym -> do
+                (cs, m'', s'') <- foldM' (Empty, m, s') [0 .. ar - 1] $ \(cs, m'', s'') i -> do
+                  ixV <- encodeCix "child ix" (ChildIx i)
+                  childV <- appM "nodeChild" [parentV, ixV]
+                  child <- decodeNid "child node" childV
+                  (m''', s''') <- goLevel s'' m'' childV
+                  pure (cs :|> child, m''', s''')
+                pure (Right (Symbolic sym cs), m'', s'')
+            pure (ILM.insert parent ea m'', s'')
+          else throwError ("Bad arity for node: " ++ show parent)
 
-extract :: Dom -> Model -> Either String (NodeId, ExtractMap)
+extract :: Dom -> Model -> Either String ExtractMap
 extract d m = runInterpM (extractM d) (InterpEnv m Map.empty)
+
+xmapPretty :: ExtractMap -> Doc ann
+xmapPretty (ExtractMap root xmap) = go root
+ where
+  go nid = case ILM.partialLookup nid xmap of
+    Left cid -> go cid
+    Right sym -> symPretty go sym

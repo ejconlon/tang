@@ -6,8 +6,6 @@ import Control.Monad.Identity (Identity (..))
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
-import Data.Set qualified as Set
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (Builder)
@@ -16,7 +14,7 @@ import Prettyprinter (Doc, Pretty (..))
 import Prettyprinter qualified as P
 import Tang.Align (Alignable (..), EqAlignErr, eqAlignWithM)
 import Tang.Dot (renderEqCon, renderNodeGraph)
-import Tang.Ecta (Edge (..), EqCon (..), GraphM, NodeGraph, NodeId, Seg (..), SegEqCon, addSymbol, addUnion)
+import Tang.Ecta (NodeGraph, NodeId, SegEqCon)
 import Tang.Render (RenderM)
 
 newtype Symbol = Symbol {unSymbol :: Text}

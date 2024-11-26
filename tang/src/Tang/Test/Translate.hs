@@ -6,13 +6,17 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_)
 import Data.Maybe (fromJust)
+import Data.Text (Text)
+import Data.Text.IO qualified as TIO
+import Prettyprinter (defaultLayoutOptions, layoutSmart)
+import Prettyprinter.Render.Text (renderStrict)
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy, exampleX)
-import Tang.Translate (extract, translate)
+import Tang.Translate (ExtractMap, extract, translate, xmapPretty)
 import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
 
@@ -83,8 +87,13 @@ runTransCase (TransCase name graphM act) = testUnit name $ do
   mm <- solve ss model
   case mm of
     Just m -> do
+      -- liftIO (pPrint graph)
       -- liftIO (pPrint m)
-      (_, _xmap) <- either fail pure (extract dom m)
+      _xmap <- either fail pure (extract dom m)
       -- liftIO (pPrint xmap)
+      -- liftIO (TIO.putStrLn (xmapText xmap))
       pure ()
     Nothing -> pure ()
+
+xmapText :: ExtractMap -> Text
+xmapText = renderStrict . layoutSmart defaultLayoutOptions . xmapPretty
