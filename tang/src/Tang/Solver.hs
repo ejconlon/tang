@@ -30,11 +30,13 @@ module Tang.Solver
   , liftS
   , nextS
   , unfoldS
-  , InterpEnv
+  , InterpEnv (..)
   , InterpM
   , runInterpM
   , interpM
   , interpFM
+  , varM
+  , appM
   , interp
   )
 where
@@ -53,7 +55,7 @@ import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
-import Data.List (find)
+import Data.List (find, unwords)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
@@ -389,6 +391,9 @@ reflectTm env = go
         case name of
           "and" -> pure (TmAnd args)
           "or" -> pure (TmOr args)
+          "not" -> f 1 $ case args of
+            [a1] -> TmNot a1
+            _ -> error "bad not"
           "true" -> f 0 (TmBool True)
           "false" -> f 0 (TmBool False)
           "=" -> f 2 $ case args of
@@ -667,6 +672,19 @@ runInterpM m = runExcept . runReaderT m
 interpM :: Tm -> InterpM Val
 interpM = cata (sequence >=> interpFM)
 
+varM :: String -> InterpM Val
+varM = interpFM . TmVarF
+
+appM :: String -> [Val] -> InterpM Val
+appM n = interpFM . TmAppF n
+
+assertArityM :: String -> [a] -> Int -> InterpM b -> InterpM b
+assertArityM name as expected mb =
+  let actual = length as
+  in  if actual == expected
+        then mb
+        else throwError (unwords ["Arity mismatch for:", name, show actual, show expected])
+
 interpFM :: TmF Val -> InterpM Val
 interpFM = \case
   TmVarF n -> do
@@ -679,17 +697,34 @@ interpFM = \case
           Just (InterpConst tm) -> interpM tm
           _ -> throwError ("Var not found: " ++ n)
   TmAppF n vs -> do
-    mx <- asks (Map.lookup n . ieModel)
-    case mx of
-      Just (InterpFunc (FuncInterp names entries mec)) -> do
-        unless (length names == length vs) $
-          throwError ("Bad app arity for " ++ n)
-        case find (\(FuncEntry ws _) -> ws == vs) entries of
-          Just (FuncEntry _ v) -> pure v
-          Nothing -> case mec of
-            Nothing -> throwError ("Func entry not found for " ++ n)
-            Just ec -> local (bindVars names vs) (interpM ec)
-      _ -> throwError ("Func not found: " ++ n)
+    let f = assertArityM n vs
+    case n of
+      "not" -> f 1 $ case vs of
+        [a1] -> interpFM (TmNotF a1)
+        _ -> throwError "Bad not"
+      "true" -> f 0 (pure (ValBool True))
+      "false" -> f 0 (pure (ValBool False))
+      "=" -> f 2 $ case vs of
+        [a1, a2] -> interpFM (TmEqF a1 a2)
+        _ -> error "bad ="
+      "<" -> f 2 $ case vs of
+        [a1, a2] -> interpFM (TmLtF a1 a2)
+        _ -> error "bad <"
+      "if" -> f 3 $ case vs of
+        [a1, a2, a3] -> interpFM (TmIteF a1 a2 a3)
+        _ -> error "bad if"
+      _ -> do
+        mx <- asks (Map.lookup n . ieModel)
+        case mx of
+          Just (InterpFunc (FuncInterp names entries mec)) -> do
+            unless (length names == length vs) $
+              throwError ("Bad app arity for " ++ n)
+            case find (\(FuncEntry ws _) -> ws == vs) entries of
+              Just (FuncEntry _ v) -> pure v
+              Nothing -> case mec of
+                Nothing -> throwError ("Func entry not found for " ++ n)
+                Just ec -> local (bindVars names vs) (interpM ec)
+          _ -> throwError ("Func not found: " ++ n)
   TmBoolF b -> pure (ValBool b)
   TmIntF ty i -> pure (ValInt ty i)
   TmEqF v1 v2 -> ValBool (v1 == v2) <$ guardValSameTy v1 v2

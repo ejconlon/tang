@@ -3,27 +3,42 @@
 module Tang.Translate where
 
 import Control.Monad ((>=>))
--- import Control.Monad.IO.Class (liftIO)
-
+import Control.Monad.Except (MonadError (..))
 import Control.Monad.State.Strict (State, execState, state)
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
-import Data.Foldable (foldl', toList, traverse_)
+import Data.Foldable (foldl', for_, toList, traverse_)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Map qualified as IntLikeMap
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
-import Tang.Exp (Tm (..), Ty (..))
-import Tang.Solver (SolveM, assert, assertWith, defConst, defFun, defTy, defVar, defVars)
+import Tang.Exp (Conv (..), Tm (..), Ty (..), Val, convInt, convNull, expVal, valExp)
+import Tang.Solver
+  ( InterpEnv (..)
+  , InterpM
+  , Model
+  , SolveM
+  , appM
+  , assert
+  , assertWith
+  , defConst
+  , defFun
+  , defTy
+  , defVar
+  , defVars
+  , runInterpM
+  , varM
+  )
 import Tang.Symbolic (Symbol (..), Symbolic (..))
-import Tang.Util (forWithIndex_)
+import Tang.Util (foldM', forWithIndex_)
 
 ceilLog2 :: Int -> Int
 ceilLog2 n = max 1 (ceiling @Double @Int (logBase 2 (fromIntegral n)))
@@ -35,26 +50,6 @@ fromIntTm :: (Coercible y Int) => Ty -> Tm -> Maybe y
 fromIntTm ty = \case
   TmInt ty' i | ty' == ty -> Just (coerce i)
   _ -> Nothing
-
-data Conv x y = Conv
-  { convTo :: !(x -> y)
-  , convFrom :: !(y -> Maybe x)
-  }
-
-convId :: Conv x x
-convId = Conv id Just
-
-convCompose :: Conv y z -> Conv x y -> Conv x z
-convCompose (Conv toYZ fromYZ) (Conv toXY fromXY) = Conv (toYZ . toXY) (fromYZ >=> fromXY)
-
-convInt :: (Coercible x Int, Coercible y Int) => Conv x y
-convInt = Conv coerce (Just . coerce)
-
-convNull :: (Eq y) => y -> Conv x y -> Conv (Maybe x) y
-convNull nl (Conv to from) =
-  Conv
-    (maybe nl to)
-    (\y -> if y == nl then Nothing else Just (from y))
 
 convIntTm :: (Coercible y Int) => Ty -> Conv x y -> Conv x Tm
 convIntTm ty (Conv to from) = Conv (toIntTm ty . to) (fromIntTm ty >=> from)
@@ -230,7 +225,7 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
     assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
 
   -- Emit assertions for constraints
-  forWithIndex_ cons $ \_ (EqCon p1 p2) -> do
+  for_ cons $ \(EqCon p1 p2) -> do
     let (v1, c1, t1) = unroll dom "x" nidTm p1
         (v2, c2, t2) = unroll dom "y" nidTm p2
         v3 = fmap (,"nid") (toList (v1 <> v2))
@@ -274,7 +269,7 @@ encodeUnionNode dom nid ns = do
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
   -- Ax: Any of the concrete nodes can be a child
-  forWithIndex_ (ILS.toList ns) $ \_ cid -> do
+  for_ (ILS.toList ns) $ \cid -> do
     let cidTm = encode (nodeCodec dom) (Just cid)
     assert $ TmApp "canBeChild" [nidTm, zeroTm, cidTm]
 
@@ -293,8 +288,63 @@ encodeMap dom = traverse_ (uncurry go) . ILM.toList
     NodeUnion ns -> encodeUnionNode dom nid ns
     NodeIntersect ns -> encodeIntersectNode dom nid ns
 
-translate :: DomMap -> NodeId -> SolveM ()
+translate :: DomMap -> NodeId -> SolveM Dom
 translate dm nr = do
   let dom = mkDom dm
   preamble dom nr
   encodeMap dom dm
+  pure dom
+
+decodeAsVal :: String -> Codec x -> (x -> Maybe y) -> String -> Val -> InterpM y
+decodeAsVal tyName cod exec msg v =
+  maybe
+    (throwError ("Error decoding " ++ tyName ++ ": " ++ msg ++ "(" ++ show v ++ ")"))
+    pure
+    (decode cod (valExp v) >>= exec)
+
+encodeAsVal :: (Show x) => String -> Codec x -> String -> x -> InterpM Val
+encodeAsVal tyName cod msg x =
+  maybe
+    (throwError ("Error encoding " ++ tyName ++ ": " ++ msg ++ "(" ++ show x ++ ")"))
+    pure
+    (expVal (encode cod x))
+
+type ExtractMap = IntLikeMap NodeId (Either NodeId (Symbolic NodeId))
+
+extractM :: Dom -> InterpM (NodeId, ExtractMap)
+extractM d = goTop ILM.empty
+ where
+  decodeNid = decodeAsVal "node id" (nodeCodec d) id
+  decodeCix = decodeAsVal "child ix" (cixCodec d) Just
+  encodeCix = encodeAsVal "child ix" (cixCodec d)
+  decodeSym = decodeAsVal "symbol" (symCodec d) Just
+  goTop m = do
+    rootV <- varM "nodeRoot"
+    root <- decodeNid "root node" rootV
+    xmap <- goLevel m rootV
+    pure (root, xmap)
+  goLevel m parentV = do
+    parent <- decodeNid "parent node" parentV
+    ChildIx ar <- decodeCix "node arity" =<< appM "nodeArity" [parentV]
+    if ar >= 0
+      then do
+        msym <- decodeSym "node sym" =<< appM "nodeSym" [parentV]
+        ea <- case msym of
+          Nothing ->
+            if ar == 1
+              then do
+                zeroV <- encodeCix "zero ix" 0
+                choice <- decodeNid "choice node" =<< appM "nodeChild" [parentV, zeroV]
+                pure (Left choice)
+              else throwError ("Bad sym for node: " ++ show parent)
+          Just sym -> do
+            cs <- foldM' Empty [0 .. ar - 1] $ \cs i -> do
+              ixV <- encodeCix "child ix" (ChildIx i)
+              child <- decodeNid "child node" =<< appM "nodeChild" [parentV, ixV]
+              pure (cs :|> child)
+            pure (Right (Symbolic sym cs))
+        pure (ILM.insert parent ea m)
+      else throwError ("Bad arity for node: " ++ show parent)
+
+extract :: Dom -> Model -> Either String (NodeId, ExtractMap)
+extract d m = runInterpM (extractM d) (InterpEnv m Map.empty)

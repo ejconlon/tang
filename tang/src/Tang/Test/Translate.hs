@@ -12,7 +12,7 @@ import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy, exampleX)
-import Tang.Translate (translate)
+import Tang.Translate (extract, translate)
 import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
 
@@ -58,9 +58,10 @@ runTransCase :: TransCase -> TestTree
 runTransCase (TransCase name graphM act) = testUnit name $ do
   (root, graph) <- buildIxGraph graphM
   ss <- newSolveSt
-  res0 <- solve ss $ do
-    translate (ngNodes graph) root
-    check
+  (dom, res0) <- solve ss $ do
+    dom <- translate (ngNodes graph) root
+    res0 <- check
+    pure (dom, res0)
   -- solvStr <- solve ss Z.solverToString
   -- liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
   -- when (res0 == Z.Undef) $ do
@@ -79,3 +80,11 @@ runTransCase (TransCase name graphM act) = testUnit name $ do
   -- mm <- solve ss model
   -- liftIO (pPrint mm)
   act ss
+  mm <- solve ss model
+  case mm of
+    Just m -> do
+      -- liftIO (pPrint m)
+      (_, _xmap) <- either fail pure (extract dom m)
+      -- liftIO (pPrint xmap)
+      pure ()
+    Nothing -> pure ()
