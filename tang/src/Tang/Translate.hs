@@ -15,6 +15,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
@@ -335,8 +336,22 @@ stream ss dm nr = ListT goStart
       then pure Nothing
       else goLoop dom
 
-unstream :: ExtractStream -> IO (Either String (Maybe (ExtractMap, ExtractStream)))
-unstream (ListT m) = runExceptT m
+streamUncons :: ExtractStream -> IO (Either String (Maybe (ExtractMap, ExtractStream)))
+streamUncons (ListT m) = runExceptT m
+
+streamShow :: ExtractStream -> IO (Maybe String, Set Text)
+streamShow = go Set.empty
+ where
+  go !acc s = do
+    ea <- streamUncons s
+    case ea of
+      Left e -> pure (Just e, acc)
+      Right ma -> case ma of
+        Nothing -> pure (Nothing, acc)
+        Just (x, s') -> do
+          let t = xmapText x
+              acc' = Set.insert t acc
+          go acc' s'
 
 decodeAsVal :: String -> Codec x -> (Maybe x -> Maybe y) -> String -> Val -> InterpM y
 decodeAsVal tyName cod exec msg v =

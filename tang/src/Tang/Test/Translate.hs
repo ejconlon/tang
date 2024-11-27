@@ -2,20 +2,17 @@
 
 module Tang.Test.Translate (testTranslate) where
 
-import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.Foldable (for_)
 import Data.Maybe (fromJust)
-import Data.Text (Text)
-import Data.Text.IO qualified as TIO
+import Data.Set qualified as Set
+import Data.Text qualified as T
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
-import Tang.Symbolic (Symbol (..), Symbolic (..))
+import Tang.Symbolic (Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy, exampleX)
-import Tang.Translate (ExtractMap, extract, translate, xmapPretty, xmapText)
-import Text.Show.Pretty (pPrint)
+import Tang.Translate (ExtractMap, extract, stream, streamShow, translate, xmapPretty, xmapText)
 import Z3.Monad qualified as Z
 
 type TransGraphM = GraphM Symbolic SegEqCon NodeId
@@ -23,8 +20,7 @@ type TransGraphM = GraphM Symbolic SegEqCon NodeId
 data TransCase = TransCase !TestName !TransGraphM !(SolveSt -> PropertyT IO ())
 
 caseX :: TransCase
-caseX = TransCase "X" exampleX $ \ss -> do
-  pure ()
+caseX = TransCase "X" exampleX (const (pure ()))
 
 caseFxx :: TransCase
 caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
@@ -44,8 +40,7 @@ caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
   Right (g 2) === interp m (TmApp "nodeChild" [f 1, f 2])
 
 caseFxxyy :: TransCase
-caseFxxyy = TransCase "Fxxyy" exampleFxxyy $ \ss -> do
-  pure ()
+caseFxxyy = TransCase "Fxxyy" exampleFxxyy (const (pure ()))
 
 testTranslate :: TestTree
 testTranslate =
@@ -54,10 +49,13 @@ testTranslate =
     [ runTransCase caseX
     , runTransCase caseFxx
     , runTransCase caseFxxyy
+    , showTransCase caseX ["(x)"]
+    -- , showTransCase caseFxx ["(f (x) (x))"]
+    -- , showTransCase caseFxxyy ["(f (x) (x))", "(f (y) (y))"]
     ]
 
 runTransCase :: TransCase -> TestTree
-runTransCase (TransCase name graphM act) = testUnit name $ do
+runTransCase (TransCase name graphM act) = testUnit ("run " ++ name) $ do
   (root, graph) <- buildIxGraph graphM
   ss <- newSolveSt
   (dom, res0) <- solve ss $ do
@@ -92,3 +90,14 @@ runTransCase (TransCase name graphM act) = testUnit name $ do
       -- liftIO (TIO.putStrLn (xmapText xmap))
       pure ()
     Nothing -> pure ()
+
+showTransCase :: TransCase -> [String] -> TestTree
+showTransCase (TransCase name graphM _) expectedList = testUnit ("show " ++ name) $ do
+  let expectedSet = Set.fromList (fmap T.pack expectedList)
+  (root, graph) <- buildIxGraph graphM
+  ss <- newSolveSt
+  let s0 = stream ss (ngNodes graph) root
+  (me, actualSet) <- liftIO (streamShow s0)
+  case me of
+    Just e -> fail e
+    Nothing -> actualSet === expectedSet
