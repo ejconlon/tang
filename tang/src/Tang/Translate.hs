@@ -3,8 +3,9 @@
 module Tang.Translate where
 
 import Control.Monad (join, (>=>))
-import Control.Monad.Except (MonadError (..))
+import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.State.Strict (State, execState, state)
+import Control.Monad.Trans (lift)
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
 import Data.Foldable (foldl', for_, toList, traverse_)
@@ -15,13 +16,15 @@ import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Debug.Trace (traceM)
+import Data.Text (Text)
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Map qualified as IntLikeMap
 import IntLike.Set (IntLikeSet)
 import IntLike.Set qualified as ILS
-import Prettyprinter (Doc)
+import ListT (ListT (..))
+import Prettyprinter (Doc, defaultLayoutOptions, layoutSmart)
+import Prettyprinter.Render.Text (renderStrict)
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Conv (..), Tm (..), Ty (..), Val, convInt, convNull, expVal, valExp)
 import Tang.Solver
@@ -29,6 +32,7 @@ import Tang.Solver
   , InterpM
   , Model
   , SolveM
+  , SolveSt
   , appM
   , assert
   , assertWith
@@ -37,7 +41,9 @@ import Tang.Solver
   , defTy
   , defVar
   , defVars
+  , model
   , runInterpM
+  , solve
   , varM
   )
 import Tang.Symbolic (Symbol (..), Symbolic (..), symPretty)
@@ -301,6 +307,37 @@ translate dm nr = do
   encodeMap dom dm
   pure dom
 
+advance :: Dom -> ExtractMap -> SolveM Bool
+advance dom em =
+  case xmapNegate (encode (nodeCodec dom) . Just) em of
+    Nothing -> pure True
+    Just tm -> False <$ assert tm
+
+type ExtractStream = ListT (ExceptT String IO) ExtractMap
+
+stream :: SolveSt -> DomMap -> NodeId -> ExtractStream
+stream ss dm nr = ListT goStart
+ where
+  goStart = do
+    dom <- lift (solve ss (translate dm nr))
+    goLoop dom
+  goLoop dom = do
+    mm <- solve ss model
+    case mm of
+      Nothing -> pure Nothing
+      Just m ->
+        case extract dom m of
+          Left e -> throwError e
+          Right x -> pure (Just (x, ListT (goAdvance dom x)))
+  goAdvance dom x = do
+    done <- solve ss (advance dom x)
+    if done
+      then pure Nothing
+      else goLoop dom
+
+unstream :: ExtractStream -> IO (Either String (Maybe (ExtractMap, ExtractStream)))
+unstream (ListT m) = runExceptT m
+
 decodeAsVal :: String -> Codec x -> (Maybe x -> Maybe y) -> String -> Val -> InterpM y
 decodeAsVal tyName cod exec msg v =
   maybe
@@ -373,3 +410,18 @@ xmapPretty (ExtractMap root xmap) = go root
   go nid = case ILM.partialLookup nid xmap of
     Left cid -> go cid
     Right sym -> symPretty go sym
+
+xmapText :: ExtractMap -> Text
+xmapText = renderStrict . layoutSmart defaultLayoutOptions . xmapPretty
+
+xmapNegate :: (NodeId -> Tm) -> ExtractMap -> Maybe Tm
+xmapNegate enc (ExtractMap _ m) = go [] (ILM.toList m)
+ where
+  go !acc = \case
+    [] -> case acc of
+      [] -> Nothing
+      _ -> Just (TmOr acc)
+    (nid, ea) : xs ->
+      case ea of
+        Right _ -> go acc xs
+        Left cid -> go (TmNot (TmEq (enc nid) (enc cid)) : acc) xs

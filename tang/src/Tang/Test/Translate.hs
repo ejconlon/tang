@@ -8,15 +8,13 @@ import Data.Foldable (for_)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Prettyprinter (defaultLayoutOptions, layoutSmart)
-import Prettyprinter.Render.Text (renderStrict)
 import PropUnit (PropertyT, TestName, TestTree, testGroup, testUnit, (===))
 import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbol (..), Symbolic (..))
 import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy, exampleX)
-import Tang.Translate (ExtractMap, extract, translate, xmapPretty)
+import Tang.Translate (ExtractMap, extract, translate, xmapPretty, xmapText)
 import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
 
@@ -94,6 +92,3 @@ runTransCase (TransCase name graphM act) = testUnit name $ do
       -- liftIO (TIO.putStrLn (xmapText xmap))
       pure ()
     Nothing -> pure ()
-
-xmapText :: ExtractMap -> Text
-xmapText = renderStrict . layoutSmart defaultLayoutOptions . xmapPretty
