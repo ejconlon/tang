@@ -163,51 +163,68 @@ preamble (Dom nc sc cc) nr = do
   assert $ TmEq "symNull" (codecNull sc)
   assert $ TmEq "nodeRoot" (encode nc (Just nr))
 
+  -- Ax: Root node is not null
+  assert $ TmNot (TmEq "nodeRoot" "nodeNull")
+
   -- Ax: Null node has null sym
   assert $ TmEq (TmApp "nodeSym" ["nodeNull"]) "symNull"
 
   -- Ax: Null node is nullary
   assert $ TmEq (TmApp "nodeArity" ["nodeNull"]) (encode cc 0)
 
-  -- Ax: Null node has null children
+  -- Ax: Null nodes are never possible
+  assert $ TmNot (TmApp "canBeChild" ["node", "index", "nodeNull"])
+
+  -- Ax: If index is >= arity, the child is null
   assert $
     TmImplies
-      (TmEq "nodeNull" "node")
+      (TmNot (TmLt "index" (TmApp "nodeArity" ["node"])))
       (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"]))
 
-  -- Ax: Relevant nodes have relevant children (less than arity)
-  assert $
-    TmIff
-      ( TmAnd
-          [ TmNot (TmEq "nodeNull" "node")
-          , TmLt "index" (TmApp "nodeArity" ["node"])
-          ]
-      )
-      (TmNot (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"])))
-
-  -- Ax: Root node is relevant
-  assert $ TmNot (TmEq "nodeNull" "nodeRoot")
-
-  -- Ax: Child nodes must be possible
+  -- Ax: Child nodes must be possible and relevant
   assert $
     TmImplies
-      (TmEq (TmApp "nodeChild" ["node", "index"]) "child")
-      (TmApp "canBeChild" ["node", "index", "child"])
+      (TmAnd
+        [ TmEq (TmApp "nodeChild" ["node", "index"]) "child"
+        , TmNot (TmEq "child" "nodeNull")
+        ])
+      (TmAnd
+        [ TmNot (TmEq "node" "nodeNull")
+        , TmApp "canBeChild" ["node", "index", "child"]
+        ])
 
-  -- Ax: It is possible for any child node to be irrelevant
-  assert $ TmApp "canBeChild" ["node", "index", "nodeNull"]
+  -- If child at any valid index is null, then they all are
+  assertWith [("node", "nid"), ("index1", "cix"), ("index2", "cix")] $
+    TmImplies
+      (TmAnd
+       [ TmLt "index1" (TmApp "nodeArity" ["node"])
+       , TmEq (TmApp "nodeChild" ["node", "index1"]) "nodeNull"
+       ])
+      (TmEq (TmApp "nodeChild" ["node", "index2"]) "nodeNull")
+
+  -- Ax: Define base case for NSC
+  assert $ TmEq (TmApp "nodeSymChild" ["nodeNull", "index"]) "symNull"
 
   -- Ax: If child node has sym defined, then it is a sym child
   assert $
     TmImplies
-      (TmNot (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]])))
-      (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeChild" ["node", "index"]))
+      (TmAnd
+        [ TmEq (TmApp "nodeChild" ["node", "index"]) "child"
+        , TmNot (TmEq "symNull" (TmApp "nodeSym" ["child"]))
+        ])
+      (TmEq (TmApp "nodeSymChild" ["node", "index"]) "child")
 
   -- Ax: If child node does not have a sym defined, then the sym child propagates up
   assert $
     TmImplies
-      (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]]))
-      (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"], "index"]))
+      (TmAnd
+        [ TmEq "child" (TmApp "nodeChild" ["node", "index"])
+        , TmNot (TmEq "nodeNull" "child")
+        , TmEq "symNull" (TmApp "nodeSym" ["child"])
+        ])
+      (TmEq (TmApp "nodeSymChild" ["node", "index"]) "child")
+
+  -- TODO need to compute reachability and assert that anything accessible from root is defined
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
 encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
@@ -236,14 +253,18 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
         cidTm = encode (nodeCodec dom) (Just cid)
     assert $ TmIff
       (TmApp "canBeChild" [nidTm, cixTm, "child"])
-      (TmOr [TmEq "child" "nodeNull", TmEq "child" cidTm])
+      (TmEq "child" cidTm)
 
   -- Emit assertions for constraints
   for_ cons $ \(EqCon p1 p2) -> do
     let (v1, c1, t1) = unroll dom "x" nidTm p1
         (v2, c2, t2) = unroll dom "y" nidTm p2
         v3 = fmap (,"nid") (toList (v1 <> v2))
-        t3 = TmImplies (TmAnd (toList (c1 <> c2))) (TmEq t1 t2)
+        t3 = TmImplies
+          (TmAnd (toList (c1 <> c2)))
+          (TmEq
+            (TmApp "nodeSym" [t1])
+            (TmApp "nodeSym" [t2]))
     assertWith v3 t3
 
 data S = S !String !Int !(Seq String) !(Seq Tm) !Tm
@@ -277,7 +298,7 @@ encodeUnionNode dom nid ns = do
   assert $ TmNot (TmEq "nodeNull" nidTm)
 
   -- Ax: The node sym is the null sym
-  assert $ TmEq "symNull" (TmApp "nodeSym" [nidTm])
+  assert $ TmEq (TmApp "nodeSym" [nidTm]) "symNull"
 
   -- Ax: Concretely define arity
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
@@ -285,8 +306,7 @@ encodeUnionNode dom nid ns = do
   -- Ax: Choice will be one of the given nodes (or null)
   let enc = encode (nodeCodec dom) . Just
       opts = [TmEq "child" (enc cid) | cid <- ILS.toList ns]
-      opts' = TmEq "child" "nodeNull" : opts
-  assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts')
+  assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts)
 
 -- TODO Intersection requires that we work with possible worlds
 encodeIntersectNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()

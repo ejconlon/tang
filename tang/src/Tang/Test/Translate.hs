@@ -68,8 +68,8 @@ runTransCase (TransCase name graphM act) = testUnit ("run " ++ name) $ do
     dom <- translate (ngNodes graph) root
     res0 <- check
     pure (dom, res0)
-  -- solvStr <- solve ss Z.solverToString
-  -- liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
+  solvStr <- solve ss Z.solverToString
+  liftIO (putStrLn ("*** Solver:\n" ++ solvStr))
   -- when (res0 == Z.Undef) $ do
   --   unkStr <- solve ss Z.solverGetReasonUnknown
   --   liftIO (putStrLn ("*** Undef reason:\n" ++ unkStr))
