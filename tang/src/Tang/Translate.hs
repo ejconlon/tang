@@ -4,6 +4,7 @@ module Tang.Translate where
 
 import Control.Monad (join, (>=>))
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State.Strict (State, execState, state)
 import Control.Monad.Trans (lift)
 import Control.Placeholder (todo)
@@ -18,6 +19,7 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import IntLike.Map (IntLikeMap)
 import IntLike.Map qualified as ILM
 import IntLike.Map qualified as IntLikeMap
@@ -49,6 +51,7 @@ import Tang.Solver
   )
 import Tang.Symbolic (Symbol (..), Symbolic (..), symPretty)
 import Tang.Util (foldM', forWithIndex_)
+import Text.Show.Pretty (pPrint)
 
 ceilLog2 :: Int -> Int
 ceilLog2 n = max 1 (ceiling @Double @Int (logBase 2 (fromIntegral n)))
@@ -202,7 +205,7 @@ preamble (Dom nc sc cc) nr = do
 
   -- Ax: If child node does not have a sym defined, then the sym child propagates up
   assert $
-    TmIff
+    TmImplies
       (TmEq "symNull" (TmApp "nodeSym" [TmApp "nodeChild" ["node", "index"]]))
       (TmEq (TmApp "nodeSymChild" ["node", "index"]) (TmApp "nodeSymChild" [TmApp "nodeChild" ["node", "index"], "index"]))
 
@@ -231,11 +234,9 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
-    -- liftIO (print ix)
-    -- liftIO (print cixTm)
-    -- liftIO (print cid)
-    -- liftIO (print cidTm)
-    assert $ TmApp "canBeChild" [nidTm, cixTm, cidTm]
+    assert $ TmIff
+      (TmApp "canBeChild" [nidTm, cixTm, "child"])
+      (TmOr [TmEq "child" "nodeNull", TmEq "child" cidTm])
 
   -- Emit assertions for constraints
   for_ cons $ \(EqCon p1 p2) -> do
@@ -281,10 +282,11 @@ encodeUnionNode dom nid ns = do
   -- Ax: Concretely define arity
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
-  -- Ax: Any of the concrete nodes can be a child
-  for_ (ILS.toList ns) $ \cid -> do
-    let cidTm = encode (nodeCodec dom) (Just cid)
-    assert $ TmApp "canBeChild" [nidTm, zeroTm, cidTm]
+  -- Ax: Choice will be one of the given nodes (or null)
+  let enc = encode (nodeCodec dom) . Just
+      opts = [TmEq "child" (enc cid) | cid <- ILS.toList ns]
+      opts' = TmEq "child" "nodeNull" : opts
+  assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts')
 
 -- TODO Intersection requires that we work with possible worlds
 encodeIntersectNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
@@ -310,9 +312,11 @@ translate dm nr = do
 
 advance :: Dom -> ExtractMap -> SolveM Bool
 advance dom em =
-  case xmapNegate (encode (nodeCodec dom) . Just) em of
+  case xmapNegate dom em of
     Nothing -> pure True
-    Just tm -> False <$ assert tm
+    Just tm -> do
+      -- liftIO (putStrLn ("Advancing assertion: " ++ show tm))
+      False <$ assert tm
 
 type ExtractStream = ListT (ExceptT String IO) ExtractMap
 
@@ -323,13 +327,18 @@ stream ss dm nr = ListT goStart
     dom <- lift (solve ss (translate dm nr))
     goLoop dom
   goLoop dom = do
+    -- liftIO (putStrLn "Solving")
     mm <- solve ss model
     case mm of
       Nothing -> pure Nothing
-      Just m ->
+      Just m -> do
+        -- liftIO (pPrint m)
+        -- liftIO (putStrLn "Extracting")
         case extract dom m of
           Left e -> throwError e
-          Right x -> pure (Just (x, ListT (goAdvance dom x)))
+          Right x -> do
+            -- liftIO (putStrLn ("Extracted: " ++ T.unpack (xmapText x)))
+            pure (Just (x, ListT (goAdvance dom x)))
   goAdvance dom x = do
     done <- solve ss (advance dom x)
     if done
@@ -429,9 +438,11 @@ xmapPretty (ExtractMap root xmap) = go root
 xmapText :: ExtractMap -> Text
 xmapText = renderStrict . layoutSmart defaultLayoutOptions . xmapPretty
 
-xmapNegate :: (NodeId -> Tm) -> ExtractMap -> Maybe Tm
-xmapNegate enc (ExtractMap _ m) = go [] (ILM.toList m)
+xmapNegate :: Dom -> ExtractMap -> Maybe Tm
+xmapNegate dom (ExtractMap _ m) = go [] (ILM.toList m)
  where
+  zeroTm = encode (cixCodec dom) (ChildIx 0)
+  encNode = encode (nodeCodec dom) . Just
   go !acc = \case
     [] -> case acc of
       [] -> Nothing
@@ -439,4 +450,7 @@ xmapNegate enc (ExtractMap _ m) = go [] (ILM.toList m)
     (nid, ea) : xs ->
       case ea of
         Right _ -> go acc xs
-        Left cid -> go (TmNot (TmEq (enc nid) (enc cid)) : acc) xs
+        Left cid ->
+          let args = [encNode nid, zeroTm]
+              cond = TmNot (TmEq (TmApp "nodeChild" args) (encNode cid))
+          in  go (cond : acc) xs

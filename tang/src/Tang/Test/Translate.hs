@@ -11,8 +11,9 @@ import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbolic (..))
-import Tang.Test.Enumerate (buildIxGraph, exampleFxx, exampleFxxyy, exampleX)
-import Tang.Translate (ExtractMap, extract, stream, streamShow, translate, xmapPretty, xmapText)
+import Tang.Test.Enumerate (buildIxGraph, exampleFx, exampleFxx, exampleFxxyy, exampleX)
+import Tang.Translate (extract, stream, streamShow, translate)
+import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
 
 type TransGraphM = GraphM Symbolic SegEqCon NodeId
@@ -22,22 +23,25 @@ data TransCase = TransCase !TestName !TransGraphM !(SolveSt -> PropertyT IO ())
 caseX :: TransCase
 caseX = TransCase "X" exampleX (const (pure ()))
 
+caseFx :: TransCase
+caseFx = TransCase "Fx" exampleFx (const (pure ()))
+
 caseFxx :: TransCase
 caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
   let f = TmInt (TyBv 2)
       g = ValInt (TyBv 2)
   res1 <- solve ss $ do
-    assert $ TmEq "nodeRoot" (f 1)
-    assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 0])
-    assert $ TmEq (f 0) (TmApp "nodeChild" [f 1, f 1])
-    assert $ TmEq (f 2) (TmApp "nodeChild" [f 1, f 2])
+    assert $ TmEq "nodeRoot" (f 2)
+    assert $ TmEq (f 0) (TmApp "nodeChild" [f 2, f 0])
+    assert $ TmEq (f 1) (TmApp "nodeChild" [f 2, f 1])
+    assert $ TmEq (f 3) (TmApp "nodeChild" [f 2, f 2])
     check
   res1 === Z.Sat
   m <- fmap fromJust (solve ss model)
   -- liftIO (pPrint m)
-  Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 0])
-  Right (g 0) === interp m (TmApp "nodeChild" [f 1, f 1])
-  Right (g 2) === interp m (TmApp "nodeChild" [f 1, f 2])
+  Right (g 0) === interp m (TmApp "nodeChild" [f 2, f 0])
+  Right (g 1) === interp m (TmApp "nodeChild" [f 2, f 1])
+  Right (g 3) === interp m (TmApp "nodeChild" [f 2, f 2])
 
 caseFxxyy :: TransCase
 caseFxxyy = TransCase "Fxxyy" exampleFxxyy (const (pure ()))
@@ -47,10 +51,12 @@ testTranslate =
   testGroup
     "translate"
     [ runTransCase caseX
+    , runTransCase caseFx
     , runTransCase caseFxx
     , runTransCase caseFxxyy
     , showTransCase caseX ["(x)"]
-    -- , showTransCase caseFxx ["(f (x) (x))"]
+    , showTransCase caseFx ["(f (x))"]
+    , showTransCase caseFxx ["(f (x) (x))"]
     -- , showTransCase caseFxxyy ["(f (x) (x))", "(f (y) (y))"]
     ]
 

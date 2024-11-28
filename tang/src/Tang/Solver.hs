@@ -55,7 +55,7 @@ import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
-import Data.List (find, unwords)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.String (IsString (..))
@@ -478,21 +478,22 @@ gatherVars tm0 = runExceptT (execStateT (cata go tm0) Map.empty)
         _ -> pure ()
     _ -> sequence_ tm
 
-mkEnvTo :: Map String Ty -> EnvTo
-mkEnvTo = foldl' go Map.empty . zip [0 ..] . reverse . Map.toList
+mkEnvTo :: [(String, Ty)] -> EnvTo
+mkEnvTo = foldl' go Map.empty . zip [0 ..] . reverse
  where
   go m (i, (k, ty)) = Map.insert k (Arg i ty) m
 
-mkExplicitForall :: (MonadIO m) => EnvTo -> Tm -> SolveT m Z.AST
-mkExplicitForall env e = do
+mkExplicitForall :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m Z.AST
+mkExplicitForall vlst e = do
+  let env = mkEnvTo vlst
   -- liftIO (print (Map.keys env))
   -- liftIO (print env)
   e' <- mkTm env e
   if Map.null env
     then pure e'
     else do
-      syms' <- traverse Z.mkStringSymbol (Map.keys env)
-      sorts' <- traverse (getSort . argTy) (Map.elems env)
+      syms' <- traverse (Z.mkStringSymbol . fst) vlst
+      sorts' <- traverse (getSort . snd) vlst
       Z.mkForall [] syms' sorts' e'
 
 mkImplicitForall :: (MonadIO m) => Tm -> SolveT m Z.AST
@@ -500,7 +501,7 @@ mkImplicitForall e = do
   z <- gatherVars e
   case z of
     Left ve -> throwError (ErrVar ve)
-    Right vars -> mkExplicitForall (mkEnvTo vars) e
+    Right vars -> mkExplicitForall (Map.toList vars) e
 
 assert :: (MonadIO m) => Tm -> SolveT m ()
 assert tm = do
@@ -511,8 +512,8 @@ assert tm = do
   Z.assert x
 
 assertWith :: (MonadIO m) => [(String, Ty)] -> Tm -> SolveT m ()
-assertWith vars tm = do
-  x <- mkExplicitForall (mkEnvTo (Map.fromList vars)) tm
+assertWith vlst tm = do
+  x <- mkExplicitForall vlst tm
   -- liftIO (putStrLn "*** Asserting:")
   -- y <- Z.astToString x
   -- liftIO (putStrLn y)

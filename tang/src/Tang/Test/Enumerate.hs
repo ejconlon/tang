@@ -4,6 +4,7 @@
 module Tang.Test.Enumerate
   ( testEnumerate
   , exampleX
+  , exampleFx
   , exampleFxx
   , exampleFxxyy
   , buildIxGraph
@@ -104,10 +105,16 @@ mkSynthCase name results graph =
 exampleX :: GraphM Symbolic SegEqCon NodeId
 exampleX = addSymbol (Symbolic "x" []) Set.empty
 
+exampleFx :: GraphM Symbolic SegEqCon NodeId
+exampleFx = do
+  ex <- fmap (Edge Nothing) exampleX
+  addSymbol (Symbolic "f" [ex]) Set.empty
+
 exampleFxx :: GraphM Symbolic SegEqCon NodeId
 exampleFxx = do
-  ex <- fmap (Edge Nothing) exampleX
-  addSymbol (Symbolic "f" [ex, ex]) Set.empty
+  x1 <- fmap (Edge Nothing) exampleX
+  x2 <- fmap (Edge Nothing) exampleX
+  addSymbol (Symbolic "f" [x1, x2]) Set.empty
 
 exampleFxxyy :: GraphM Symbolic SegEqCon NodeId
 exampleFxxyy = do
