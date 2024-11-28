@@ -5,7 +5,7 @@ module Tang.Translate where
 import Control.Monad (join, (>=>))
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.State.Strict (State, execState, state)
+import Control.Monad.State.Strict (State, execState, modify', state)
 import Control.Monad.Trans (lift)
 import Control.Placeholder (todo)
 import Data.Coerce (Coercible, coerce)
@@ -155,8 +155,9 @@ preamble (Dom nc sc cc) nr = do
   defFun "nodeArity" [("node", "nid")] "cix"
   defFun "nodeChild" [("node", "nid"), ("index", "cix")] "nid"
   defFun "nodeSym" [("node", "nid")] "sid"
-  defFun "nodeSymChild" [("node", "nid"), ("index", "cix")] "nid"
+  defFun "nodeSymClosure" [("node", "nid")] "nid"
   defFun "canBeChild" [("node", "nid"), ("index", "cix"), ("child", "nid")] TyBool
+  defFun "reachable" [("node", "nid")] TyBool
 
   -- Ax: Concretely define null and root constants
   assert $ TmEq "nodeNull" (codecNull nc)
@@ -166,14 +167,34 @@ preamble (Dom nc sc cc) nr = do
   -- Ax: Root node is not null
   assert $ TmNot (TmEq "nodeRoot" "nodeNull")
 
+  -- Ax: Root node is reachable
+  assert $ TmApp "reachable" ["nodeRoot"]
+
   -- Ax: Null node has null sym
   assert $ TmEq (TmApp "nodeSym" ["nodeNull"]) "symNull"
+
+  -- Ax: Null node has null closure
+  assert $ TmEq (TmApp "nodeSymClosure" ["nodeNull"]) "symNull"
 
   -- Ax: Null node is nullary
   assert $ TmEq (TmApp "nodeArity" ["nodeNull"]) (encode cc 0)
 
-  -- Ax: Null nodes are never possible
+  -- Ax: Null nodes are never considered possible
   assert $ TmNot (TmApp "canBeChild" ["node", "index", "nodeNull"])
+
+  -- Ax: Null node is not reachable
+  assert $ TmNot (TmApp "reachable" ["nodeNull"])
+
+  -- Ax: Children of reachable nodes at valid indices are reachable
+  assert $
+    TmImplies
+      ( TmAnd
+          [ TmApp "reachable" ["node"]
+          , TmLt "index" (TmApp "nodeArity" ["node"])
+          , TmEq "child" (TmApp "nodeChild" ["node", "index"])
+          ]
+      )
+      (TmApp "reachable" ["child"])
 
   -- Ax: If index is >= arity, the child is null
   assert $
@@ -181,50 +202,26 @@ preamble (Dom nc sc cc) nr = do
       (TmNot (TmLt "index" (TmApp "nodeArity" ["node"])))
       (TmEq "nodeNull" (TmApp "nodeChild" ["node", "index"]))
 
-  -- Ax: Child nodes must be possible and relevant
+  -- Ax: Child nodes must be possible (or null)
   assert $
     TmImplies
-      (TmAnd
-        [ TmEq (TmApp "nodeChild" ["node", "index"]) "child"
-        , TmNot (TmEq "child" "nodeNull")
-        ])
-      (TmAnd
-        [ TmNot (TmEq "node" "nodeNull")
-        , TmApp "canBeChild" ["node", "index", "child"]
-        ])
+      (TmEq (TmApp "nodeChild" ["node", "index"]) "child")
+      ( TmOr
+          [ TmEq "child" "nodeNull"
+          , TmApp "canBeChild" ["node", "index", "child"]
+          ]
+      )
 
-  -- If child at any valid index is null, then they all are
-  assertWith [("node", "nid"), ("index1", "cix"), ("index2", "cix")] $
-    TmImplies
-      (TmAnd
-       [ TmLt "index1" (TmApp "nodeArity" ["node"])
-       , TmEq (TmApp "nodeChild" ["node", "index1"]) "nodeNull"
-       ])
-      (TmEq (TmApp "nodeChild" ["node", "index2"]) "nodeNull")
+-- -- Ax: If child at any valid index is null, then they all are
+-- assertWith [("node", "nid"), ("index1", "cix"), ("index2", "cix")] $
+--   TmImplies
+--     (TmAnd
+--      [ TmLt "index1" (TmApp "nodeArity" ["node"])
+--      , TmEq (TmApp "nodeChild" ["node", "index1"]) "nodeNull"
+--      ])
+--     (TmEq (TmApp "nodeChild" ["node", "index2"]) "nodeNull")
 
-  -- Ax: Define base case for NSC
-  assert $ TmEq (TmApp "nodeSymChild" ["nodeNull", "index"]) "symNull"
-
-  -- Ax: If child node has sym defined, then it is a sym child
-  assert $
-    TmImplies
-      (TmAnd
-        [ TmEq (TmApp "nodeChild" ["node", "index"]) "child"
-        , TmNot (TmEq "symNull" (TmApp "nodeSym" ["child"]))
-        ])
-      (TmEq (TmApp "nodeSymChild" ["node", "index"]) "child")
-
-  -- Ax: If child node does not have a sym defined, then the sym child propagates up
-  assert $
-    TmImplies
-      (TmAnd
-        [ TmEq "child" (TmApp "nodeChild" ["node", "index"])
-        , TmNot (TmEq "nodeNull" "child")
-        , TmEq "symNull" (TmApp "nodeSym" ["child"])
-        ])
-      (TmEq (TmApp "nodeSymChild" ["node", "index"]) "child")
-
-  -- TODO need to compute reachability and assert that anything accessible from root is defined
+-- TODO need to compute reachability and assert that anything accessible from root is defined
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
 encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
@@ -247,52 +244,57 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
   -- Ax: Concretely define arity
   assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
+  -- Ax: This node has a non-null symbol, so we do not recurse
+  assert $ TmEq (TmApp "nodeSymClosure" [nidTm]) nidTm
+
   -- Ax: Each child can have one concrete solution
   forWithIndex_ chi $ \ix cid -> do
     let cixTm = encode (cixCodec dom) (ChildIx ix)
         cidTm = encode (nodeCodec dom) (Just cid)
-    assert $ TmIff
-      (TmApp "canBeChild" [nidTm, cixTm, "child"])
-      (TmEq "child" cidTm)
+    assert $
+      TmIff
+        (TmApp "canBeChild" [nidTm, cixTm, "child"])
+        (TmEq "child" cidTm)
 
-  -- Emit assertions for constraints
+  -- Ax: Specified constraints
   for_ cons $ \(EqCon p1 p2) -> do
     let (v1, c1, t1) = unroll dom "x" nidTm p1
         (v2, c2, t2) = unroll dom "y" nidTm p2
         v3 = fmap (,"nid") (toList (v1 <> v2))
-        t3 = TmImplies
-          (TmAnd (toList (c1 <> c2)))
-          (TmEq
-            (TmApp "nodeSym" [t1])
-            (TmApp "nodeSym" [t2]))
+        t3 =
+          TmImplies
+            (TmAnd (toList (c1 <> c2)))
+            ( TmEq
+                (TmApp "nodeSym" [t1])
+                (TmApp "nodeSym" [t2])
+            )
     assertWith v3 t3
 
 data S = S !String !Int !(Seq String) !(Seq Tm) !Tm
 
 unroll :: Dom -> String -> Tm -> Seq ChildIx -> (Seq String, Seq Tm, Tm)
 unroll dom pre tm path =
-  case execState (unrollS dom tm path) (S pre 0 Seq.empty Seq.empty tm) of
+  case execState (unrollS dom path) (S pre 0 Seq.empty Seq.empty tm) of
     S _ _ vs cs tm' -> (vs, cs, tm')
 
-unrollS :: Dom -> Tm -> Seq ChildIx -> State S ()
-unrollS dom tm = \case
+unrollS :: Dom -> Seq ChildIx -> State S ()
+unrollS dom = \case
   Empty -> pure ()
   ix :<| path' -> do
-    tm' <- state $ \(S a b c d _) ->
+    modify' $ \(S a b c d e) ->
       let f = a ++ show b
-          tm' = TmVar f
-          tm'' = encode (cixCodec dom) ix
-          tm''' = TmApp "nodeSymChild" [tm, tm'']
-          d' = d :|> TmEq tm' tm'''
-          s' = S a (b + 1) (c :|> f) d' tm'
-      in  (tm', s')
-    unrollS dom tm' path'
+          varTm = TmVar f
+          ixTm = encode (cixCodec dom) ix
+          eqTm = TmEq varTm (TmApp "nodeSymClosure" [TmApp "nodeChild" [e, ixTm]])
+          d' = d :|> eqTm
+      in  S a (b + 1) (c :|> f) d' varTm
+    unrollS dom path'
 
 encodeUnionNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
 encodeUnionNode dom nid ns = do
   let nidTm = encode (nodeCodec dom) (Just nid)
-      maxTm = encode (cixCodec dom) 1
       zeroTm = encode (cixCodec dom) 0
+      oneTm = encode (cixCodec dom) 1
 
   -- Ax: Sanity: The node id is not the null id
   assert $ TmNot (TmEq "nodeNull" nidTm)
@@ -301,9 +303,15 @@ encodeUnionNode dom nid ns = do
   assert $ TmEq (TmApp "nodeSym" [nidTm]) "symNull"
 
   -- Ax: Concretely define arity
-  assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) oneTm
 
-  -- Ax: Choice will be one of the given nodes (or null)
+  -- Ax: This node has a null symbol, so we recurse
+  assert $
+    TmEq
+      (TmApp "nodeSymClosure" [nidTm])
+      (TmApp "nodeSymClosure" [TmApp "nodeChild" [nidTm, zeroTm]])
+
+  -- Ax: Choice will be one of the given nodes
   let enc = encode (nodeCodec dom) . Just
       opts = [TmEq "child" (enc cid) | cid <- ILS.toList ns]
   assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts)
