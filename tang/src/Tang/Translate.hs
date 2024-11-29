@@ -369,9 +369,8 @@ encodeUnionNode dom nid ns = do
       opts = [TmEq "child" (enc cid) | cid <- ILS.toList ns]
   assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts)
 
--- TODO need final axiom to assert that all subtrees are equivalent
 encodeIntersectNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
-encodeIntersectNode dom nid _ns = do
+encodeIntersectNode dom nid ns = do
   let nidTm = encode (nodeCodec dom) (Just nid)
       zeroTm = encode (cixCodec dom) 0
       oneTm = encode (cixCodec dom) 1
@@ -387,6 +386,17 @@ encodeIntersectNode dom nid _ns = do
     TmEq
       (TmApp "nodeSymClosure" [nidTm])
       (TmApp "nodeSymClosure" [TmApp "nodeChild" [nidTm, zeroTm]])
+
+  -- Ax: This node has a valid child if all subtrees are equiv
+  case ILS.minView ns of
+    Nothing -> pure ()
+    Just (j, js) -> do
+      let jidTm = encode (nodeCodec dom) (Just j)
+          equivTms = fmap (TmEq jidTm . encode (nodeCodec dom) . Just) (ILS.toList js)
+      assert $
+        TmIff
+          (TmApp "canBeChild" [nidTm, zeroTm, jidTm])
+          (TmAnd equivTms)
 
 encodeMap
   :: Dom
