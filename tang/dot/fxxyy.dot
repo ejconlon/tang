@@ -11,5 +11,5 @@ digraph g {
   5 -> 3
   5 -> 4
   6 -> 2 [label="fst" ]
-  6 -> 5 [label="fst" ]
+  6 -> 5 [label="snd" ]
 }

@@ -11,7 +11,7 @@ import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbolic (..))
-import Tang.Test.Enumerate (buildIxGraph, exampleFx, exampleFxx, exampleFxxyy, exampleX)
+import Tang.Test.Enumerate (buildIxGraph, exampleFx, exampleFxInt, exampleFxx, exampleFxxyy, exampleX)
 import Tang.Translate (extract, stream, streamShow, translate)
 import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
@@ -46,6 +46,9 @@ caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
 caseFxxyy :: TransCase
 caseFxxyy = TransCase "Fxxyy" exampleFxxyy (const (pure ()))
 
+caseFxInt :: TransCase
+caseFxInt = TransCase "Fx int" exampleFxInt (const (pure ()))
+
 testTranslate :: TestTree
 testTranslate =
   testGroup
@@ -54,10 +57,12 @@ testTranslate =
     , runTransCase caseFx
     , runTransCase caseFxx
     , runTransCase caseFxxyy
-    , showTransCase caseX ["(x)"]
+    , -- , runTransCase caseFxInt -- TODO fix
+      showTransCase caseX ["(x)"]
     , showTransCase caseFx ["(f (x))"]
     , showTransCase caseFxx ["(f (x) (x))"]
     , showTransCase caseFxxyy ["(f (x) (x))", "(f (y) (y))"]
+    -- , showTransCase caseFxInt ["(f (x))"] -- TODO fix
     ]
 
 runTransCase :: TransCase -> TestTree

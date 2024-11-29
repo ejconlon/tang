@@ -12,10 +12,10 @@ main :: IO ()
 main = testMain $ \_ ->
   testGroup
     "Tang"
-    -- [ testUm
-    -- , testSearch
-    -- , testEnumerate
-    -- , testDot
-    [ testSolver
+    [ testUm
+    , testSearch
+    , testEnumerate
+    , testDot
+    , testSolver
     , testTranslate
     ]
