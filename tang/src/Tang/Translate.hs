@@ -173,7 +173,7 @@ preamble (Dom nc sc cc _) nr = do
   defConst "symNull" "sid"
   defConst "nodeRoot" "nid"
 
-  defVars ["node", "child", "node1", "clo", "clo1"] "nid"
+  defVars ["node", "child", "node1", "node2", "clo", "clo1"] "nid"
   defVar "index" "cix"
   defVar "sym" "sid"
 
@@ -240,14 +240,17 @@ preamble (Dom nc sc cc _) nr = do
           ]
       )
 
-  -- Ax: The only node equivalent to null is null
-  assert $
-    TmImplies
-      (TmApp "nodeEquiv" ["node", "nodeNull"])
-      (TmEq "node" "nodeNull")
-
   -- Ax: All nodes are equivalent to themselves
   assert $ TmApp "nodeEquiv" ["node", "node"]
+
+-- -- TODO necessary? helpful?
+-- assert $ TmIff (TmApp "nodeEquiv" ["node", "node1"]) (TmApp "nodeEquiv" ["node1", "node"])
+-- assert $ TmImplies
+--   (TmAnd
+--     [ TmApp "nodeEquiv" ["node", "node1"]
+--     , TmApp "nodeEquiv" ["node1", "node2"]
+--     ])
+--   (TmApp "nodeEquiv" ["node", "node2"])
 
 encodeAnyNode :: Dom -> NodeId -> SolveM ()
 encodeAnyNode (Dom nc _ cc ac) nid = do
@@ -389,14 +392,15 @@ encodeIntersectNode dom nid ns = do
 
   -- Ax: This node has a valid child if all subtrees are equiv
   case ILS.minView ns of
-    Nothing -> pure ()
+    Nothing -> do
+      assert $ TmNot (TmApp "canBeChild" [nidTm, zeroTm, "node"])
     Just (j, js) -> do
       let jidTm = encode (nodeCodec dom) (Just j)
-          equivTms = fmap (TmEq jidTm . encode (nodeCodec dom) . Just) (ILS.toList js)
+          equivTms = fmap (\k -> TmApp "nodeEquiv" [jidTm, encode (nodeCodec dom) (Just k)]) (ILS.toList js)
       assert $
         TmIff
-          (TmApp "canBeChild" [nidTm, zeroTm, jidTm])
-          (TmAnd equivTms)
+          (TmApp "canBeChild" [nidTm, zeroTm, "child"])
+          (TmAnd (TmEq "child" jidTm : equivTms))
 
 encodeMap
   :: Dom

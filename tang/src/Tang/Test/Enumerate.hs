@@ -8,6 +8,7 @@ module Tang.Test.Enumerate
   , exampleFxx
   , exampleFxxyy
   , exampleFxInt
+  , exampleFxInt2
   , buildIxGraph
   )
 where
@@ -139,6 +140,16 @@ exampleFxInt = do
   z2 <- addSymbol (Symbolic "f" [Edge Nothing u2]) Set.empty
   addIntersect z1 z2
 
+exampleFxInt2 :: GraphM Symbolic SegEqCon NodeId
+exampleFxInt2 = do
+  x1 <- addSymbol (Symbolic "x" []) Set.empty
+  z1 <- addSymbol (Symbolic "f" [Edge Nothing x1]) Set.empty
+  x2 <- addSymbol (Symbolic "x" []) Set.empty
+  y2 <- addSymbol (Symbolic "y" []) Set.empty
+  u2 <- addUnion x2 y2
+  z2 <- addSymbol (Symbolic "f" [Edge Nothing u2]) Set.empty
+  addIntersect z2 z1
+
 enumCases :: [EnumCase]
 enumCases =
   [ EnumCase "basic" SearchStratAll exampleX $ \case
@@ -159,6 +170,7 @@ enumCases =
   , mkSynthCase "fxx" ["(f (x) (x))"] exampleFxx
   , mkSynthCase "fxx|fyy" ["(f (x) (x))", "(f (y) (y))"] exampleFxxyy
   , mkSynthCase "fx int" ["(f (x))"] exampleFxInt
+  , mkSynthCase "fx int 2" ["(f (x))"] exampleFxInt2
   ]
 
 testEnumerate :: TestTree
