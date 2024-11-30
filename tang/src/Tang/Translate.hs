@@ -323,9 +323,10 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
         t3 =
           TmImplies
             (TmAnd (toList (c1 <> c2)))
-            ( TmEq
-                (TmApp "nodeSym" [t1])
-                (TmApp "nodeSym" [t2])
+            ( TmAnd
+                [ TmEq (TmApp "nodeSym" [t1]) (TmApp "nodeSym" [t2])
+                , TmApp "nodeEquiv" [t1, t2]
+                ]
             )
     assertWith v3 t3
 
