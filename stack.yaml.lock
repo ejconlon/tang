@@ -27,7 +27,7 @@ packages:
     hackage: prop-unit-0.1.3
 - completed:
     commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
-    git: git@github.com:IagoAbal/haskell-z3
+    git: git@github.com:ejconlon/haskell-z3
     name: z3
     pantry-tree:
       sha256: 991b51749ed89306e80e1bc62c97539991b1a4b2bfc8aae9d6f98480200f48d5
@@ -35,7 +35,7 @@ packages:
     version: 411.0.1
   original:
     commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
-    git: git@github.com:IagoAbal/haskell-z3
+    git: git@github.com:ejconlon/haskell-z3
 snapshots:
 - completed:
     sha256: 08bd13ce621b41a8f5e51456b38d5b46d7783ce114a50ab604d6bbab0d002146
