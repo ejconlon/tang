@@ -12,5 +12,5 @@ extra-deps:
 - prop-unit-0.1.3
 # TODO use hackage release when available
 # Upstream: git@github.com:IagoAbal/haskell-z3
-- git: git@github.com:ejconlon/haskell-z3
+- git: https://github.com/ejconlon/haskell-z3.git
   commit: b77a17e5eeb7db82656bcbcd66c6e952207e69ca
