@@ -1,3 +1,3 @@
 # tang
 
-ecta implementation
+Translating ECTAs to SMT to synthesize programs
