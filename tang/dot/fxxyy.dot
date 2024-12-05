@@ -1,15 +1,15 @@
 digraph g {
   0 [forcelabels="true" label="x" xlabel="" shape="circle"]
   1 [forcelabels="true" label="y" xlabel="" shape="circle"]
-  2 [forcelabels="true" label="" shape="square"]
+  2 [forcelabels="true" label="U" shape="square"]
   3 [forcelabels="true" label="x" xlabel="" shape="circle"]
   4 [forcelabels="true" label="y" xlabel="" shape="circle"]
-  5 [forcelabels="true" label="" shape="square"]
+  5 [forcelabels="true" label="U" shape="square"]
   6 [forcelabels="true" label="f" xlabel="fst = snd" shape="circle" style="bold"]
   2 -> 0
   2 -> 1
   5 -> 3
   5 -> 4
   6 -> 2 [label="fst" ]
-  6 -> 5 [label="fst" ]
+  6 -> 5 [label="snd" ]
 }

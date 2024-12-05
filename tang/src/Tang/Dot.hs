@@ -105,9 +105,9 @@ renderNodeGraph g f root (NodeGraph _ nm _) = do
           NodeSymbol (SymbolNode _ _ _ fe cs) ->
             (g fe, Just (renderCons f cs), symbolNodeAttrs)
           NodeUnion _ -> do
-            ("", Nothing, unionNodeAttrs)
+            ("U", Nothing, unionNodeAttrs)
           NodeIntersect _ -> do
-            ("", Nothing, intersectNodeAttrs)
+            ("I", Nothing, intersectNodeAttrs)
         -- NodeClone _ -> do
         --   ("", Nothing, cloneNodeAttrs)
         attrs' = attrs <> (if i == root then rootNodeAttrs else mempty)

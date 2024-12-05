@@ -1,6 +1,7 @@
 digraph g {
   0 [forcelabels="true" label="x" xlabel="" shape="circle"]
-  1 [forcelabels="true" label="f" xlabel="" shape="circle" style="bold"]
-  1 -> 0
-  1 -> 0
+  1 [forcelabels="true" label="x" xlabel="" shape="circle"]
+  2 [forcelabels="true" label="f" xlabel="" shape="circle" style="bold"]
+  2 -> 0
+  2 -> 1
 }
