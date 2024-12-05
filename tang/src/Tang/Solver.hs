@@ -152,6 +152,7 @@ data Err
   | ErrArityMismatch !String !Int !Int
   | ErrNotIntTy !Ty
   | ErrVar !VarErr
+  | ErrArityClosure
   deriving stock (Eq, Ord, Show)
 
 instance Exception Err

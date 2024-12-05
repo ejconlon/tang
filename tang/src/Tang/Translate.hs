@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Tang.Translate where
 
@@ -31,7 +32,8 @@ import Prettyprinter.Render.Text (renderStrict)
 import Tang.Ecta (ChildIx (..), EqCon (..), IxEqCon, Node (..), NodeId (..), NodeMap, SymbolNode (..))
 import Tang.Exp (Conv (..), Tm (..), Ty (..), Val, convInt, convNull, expVal, valExp)
 import Tang.Solver
-  ( InterpEnv (..)
+  ( Err (..)
+  , InterpEnv (..)
   , InterpM
   , Model
   , SolveM
@@ -88,6 +90,22 @@ decode = convFrom . codecConv
 
 type DomMap = NodeMap Symbolic IxEqCon
 
+findArClosure :: DomMap -> Maybe (IntLikeMap NodeId Int)
+findArClosure m0 = foldM' ILM.empty (ILM.toList m0) go1
+ where
+  go1 m (i, n) =
+    case ILM.lookup i m of
+      Just _ -> pure m
+      Nothing -> case n of
+        NodeSymbol (SymbolNode ar _ _ _ _) -> pure (ILM.insert i ar m)
+        NodeUnion js -> go2 m i js
+        NodeIntersect js -> go2 m i js
+  go2 m i js = do
+    m' <- foldM' m (ILS.toList js) go3
+    ar <- ILS.minView js >>= flip ILM.lookup m' . fst
+    pure (ILM.insert i ar m')
+  go3 m i = ILM.lookup i m0 >>= go1 m . (i,)
+
 type NodeCodec = Codec (Maybe NodeId)
 
 mkNodeCodec :: DomMap -> NodeCodec
@@ -133,13 +151,20 @@ data Dom = Dom
   { nodeCodec :: !NodeCodec
   , symCodec :: !SymCodec
   , cixCodec :: !CixCodec
+  , arClosure :: !(IntLikeMap NodeId Int)
   }
 
-mkDom :: DomMap -> Dom
-mkDom dm = Dom (mkNodeCodec dm) (mkSymCodec dm) (mkCixCodec dm)
+mkDom :: DomMap -> Maybe Dom
+mkDom dm =
+  let nodeCodec = mkNodeCodec dm
+      symCodec = mkSymCodec dm
+      cixCodec = mkCixCodec dm
+  in  case findArClosure dm of
+        Nothing -> Nothing
+        Just arClosure -> Just (Dom {..})
 
 preamble :: Dom -> NodeId -> SolveM ()
-preamble (Dom nc sc cc) nr = do
+preamble (Dom nc sc cc _) nr = do
   defTy "nid" (Just (codecTy nc))
   defTy "sid" (Just (codecTy sc))
   defTy "cix" (Just (codecTy cc))
@@ -148,16 +173,19 @@ preamble (Dom nc sc cc) nr = do
   defConst "symNull" "sid"
   defConst "nodeRoot" "nid"
 
-  defVars ["node", "child"] "nid"
+  defVars ["node", "child", "node1", "node2", "clo", "clo1"] "nid"
   defVar "index" "cix"
   defVar "sym" "sid"
 
   defFun "nodeArity" [("node", "nid")] "cix"
-  defFun "nodeChild" [("node", "nid"), ("index", "cix")] "nid"
   defFun "nodeSym" [("node", "nid")] "sid"
+
+  defFun "nodeChild" [("node", "nid"), ("index", "cix")] "nid"
   defFun "nodeSymClosure" [("node", "nid")] "nid"
+
   defFun "canBeChild" [("node", "nid"), ("index", "cix"), ("child", "nid")] TyBool
   defFun "reachable" [("node", "nid")] TyBool
+  defFun "nodeEquiv" [("node", "nid"), ("other", "nid")] TyBool
 
   -- Ax: Concretely define null and root constants
   assert $ TmEq "nodeNull" (codecNull nc)
@@ -212,37 +240,68 @@ preamble (Dom nc sc cc) nr = do
           ]
       )
 
--- -- Ax: If child at any valid index is null, then they all are
--- assertWith [("node", "nid"), ("index1", "cix"), ("index2", "cix")] $
---   TmImplies
---     (TmAnd
---      [ TmLt "index1" (TmApp "nodeArity" ["node"])
---      , TmEq (TmApp "nodeChild" ["node", "index1"]) "nodeNull"
---      ])
---     (TmEq (TmApp "nodeChild" ["node", "index2"]) "nodeNull")
+  -- Ax: All nodes are equivalent to themselves
+  assert $ TmApp "nodeEquiv" ["node", "node"]
 
--- TODO need to compute reachability and assert that anything accessible from root is defined
+-- -- TODO necessary? helpful?
+-- assert $ TmIff (TmApp "nodeEquiv" ["node", "node1"]) (TmApp "nodeEquiv" ["node1", "node"])
+-- assert $ TmImplies
+--   (TmAnd
+--     [ TmApp "nodeEquiv" ["node", "node1"]
+--     , TmApp "nodeEquiv" ["node1", "node2"]
+--     ])
+--   (TmApp "nodeEquiv" ["node", "node2"])
+
+encodeAnyNode :: Dom -> NodeId -> SolveM ()
+encodeAnyNode (Dom nc _ cc ac) nid = do
+  arCl <- maybe (throwError ErrArityClosure) pure (ILM.lookup nid ac)
+
+  let nidTm = encode nc (Just nid)
+
+  -- Ax: Sanity: The node id is not the null id
+  assert $ TmNot (TmEq "nodeNull" nidTm)
+
+  -- Ax: Equivalent nodes have same symbol, same arities and
+  -- their children are pairwise equivalent.
+  let childTms =
+        [ let ixTm = encode cc (ChildIx i)
+          in  TmApp
+                "nodeEquiv"
+                [ TmApp "nodeChild" ["clo", ixTm]
+                , TmApp "nodeChild" ["clo1", ixTm]
+                ]
+        | i <- [0 .. arCl - 1]
+        ]
+  assert $
+    TmImplies
+      ( TmAnd $
+          [ TmEq "clo" (TmApp "nodeSymClosure" [nidTm])
+          , TmEq "clo1" (TmApp "nodeSymClosure" ["node"])
+          , TmEq (TmApp "nodeSym" ["clo"]) (TmApp "nodeSym" ["clo1"])
+          , TmEq (TmApp "nodeArity" ["clo"]) (TmApp "nodeArity" ["clo1"])
+          ]
+            ++ childTms
+      )
+      ( TmAnd
+          [ TmApp "nodeEquiv" [nidTm, "node"]
+          , TmApp "nodeEquiv" ["node", nidTm]
+          ]
+      )
 
 encodeSymNode :: Dom -> NodeId -> SymbolNode Symbolic IxEqCon -> SolveM ()
 encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
   let nidTm = encode (nodeCodec dom) (Just nid)
       symTm = encode (symCodec dom) (Just sym)
-      maxTm = encode (cixCodec dom) (ChildIx (Seq.length chi))
-
-  -- liftIO (print s)
-  -- liftIO (print maxTm)
+      arTm = encode (cixCodec dom) (ChildIx (Seq.length chi))
 
   -- Ax: Sanity: The node symbol is not the null symbol
   assert $ TmNot (TmEq "symNull" symTm)
 
-  -- Ax: Sanity: The node id is not the null id
-  assert $ TmNot (TmEq "nodeNull" nidTm)
+  -- Ax: Concretely define arity
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) arTm
 
   -- Ax: Concretely define node symbol
   assert $ TmEq (TmApp "nodeSym" [nidTm]) symTm
-
-  -- Ax: Concretely define arity
-  assert $ TmEq (TmApp "nodeArity" [nidTm]) maxTm
 
   -- Ax: This node has a non-null symbol, so we do not recurse
   assert $ TmEq (TmApp "nodeSymClosure" [nidTm]) nidTm
@@ -264,9 +323,10 @@ encodeSymNode dom nid (SymbolNode _ _ _ _s@(Symbolic sym chi) cons) = do
         t3 =
           TmImplies
             (TmAnd (toList (c1 <> c2)))
-            ( TmEq
-                (TmApp "nodeSym" [t1])
-                (TmApp "nodeSym" [t2])
+            ( TmAnd
+                [ TmEq (TmApp "nodeSym" [t1]) (TmApp "nodeSym" [t2])
+                , TmApp "nodeEquiv" [t1, t2]
+                ]
             )
     assertWith v3 t3
 
@@ -296,14 +356,11 @@ encodeUnionNode dom nid ns = do
       zeroTm = encode (cixCodec dom) 0
       oneTm = encode (cixCodec dom) 1
 
-  -- Ax: Sanity: The node id is not the null id
-  assert $ TmNot (TmEq "nodeNull" nidTm)
+  -- Ax: Concretely define arity
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) oneTm
 
   -- Ax: The node sym is the null sym
   assert $ TmEq (TmApp "nodeSym" [nidTm]) "symNull"
-
-  -- Ax: Concretely define arity
-  assert $ TmEq (TmApp "nodeArity" [nidTm]) oneTm
 
   -- Ax: This node has a null symbol, so we recurse
   assert $
@@ -316,9 +373,35 @@ encodeUnionNode dom nid ns = do
       opts = [TmEq "child" (enc cid) | cid <- ILS.toList ns]
   assert $ TmIff (TmApp "canBeChild" [nidTm, zeroTm, "child"]) (TmOr opts)
 
--- TODO Intersection requires that we work with possible worlds
 encodeIntersectNode :: Dom -> NodeId -> IntLikeSet NodeId -> SolveM ()
-encodeIntersectNode _dom _nid _ns = todo
+encodeIntersectNode dom nid ns = do
+  let nidTm = encode (nodeCodec dom) (Just nid)
+      zeroTm = encode (cixCodec dom) 0
+      oneTm = encode (cixCodec dom) 1
+
+  -- Ax: Concretely define arity
+  assert $ TmEq (TmApp "nodeArity" [nidTm]) oneTm
+
+  -- Ax: The node sym is the null sym
+  assert $ TmEq (TmApp "nodeSym" [nidTm]) "symNull"
+
+  -- Ax: This node has a null symbol, so we recurse
+  assert $
+    TmEq
+      (TmApp "nodeSymClosure" [nidTm])
+      (TmApp "nodeSymClosure" [TmApp "nodeChild" [nidTm, zeroTm]])
+
+  -- Ax: This node has a valid child if all subtrees are equiv
+  case ILS.minView ns of
+    Nothing -> do
+      assert $ TmNot (TmApp "canBeChild" [nidTm, zeroTm, "node"])
+    Just (j, js) -> do
+      let jidTm = encode (nodeCodec dom) (Just j)
+          equivTms = fmap (\k -> TmApp "nodeEquiv" [jidTm, encode (nodeCodec dom) (Just k)]) (ILS.toList js)
+      assert $
+        TmIff
+          (TmApp "canBeChild" [nidTm, zeroTm, "child"])
+          (TmAnd (TmEq "child" jidTm : equivTms))
 
 encodeMap
   :: Dom
@@ -326,17 +409,21 @@ encodeMap
   -> SolveM ()
 encodeMap dom = traverse_ (uncurry go) . ILM.toList
  where
-  go nid = \case
-    NodeSymbol sn -> encodeSymNode dom nid sn
-    NodeUnion ns -> encodeUnionNode dom nid ns
-    NodeIntersect ns -> encodeIntersectNode dom nid ns
+  go nid n = do
+    encodeAnyNode dom nid
+    case n of
+      NodeSymbol sn -> encodeSymNode dom nid sn
+      NodeUnion ns -> encodeUnionNode dom nid ns
+      NodeIntersect ns -> encodeIntersectNode dom nid ns
 
 translate :: DomMap -> NodeId -> SolveM Dom
 translate dm nr = do
-  let dom = mkDom dm
-  preamble dom nr
-  encodeMap dom dm
-  pure dom
+  case mkDom dm of
+    Nothing -> throwError ErrArityClosure
+    Just dom -> do
+      preamble dom nr
+      encodeMap dom dm
+      pure dom
 
 advance :: Dom -> ExtractMap -> SolveM Bool
 advance dom em =

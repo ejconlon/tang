@@ -11,7 +11,7 @@ import Tang.Ecta (GraphM, NodeGraph (..), NodeId, SegEqCon)
 import Tang.Exp (Tm (..), Ty (..), Val (..))
 import Tang.Solver (SolveSt, assert, check, interp, model, newSolveSt, solve)
 import Tang.Symbolic (Symbolic (..))
-import Tang.Test.Enumerate (buildIxGraph, exampleFx, exampleFxx, exampleFxxyy, exampleX)
+import Tang.Test.Enumerate (buildIxGraph, exampleFx, exampleFxInt, exampleFxInt2, exampleFxx, exampleFxxyy, exampleX)
 import Tang.Translate (extract, stream, streamShow, translate)
 import Text.Show.Pretty (pPrint)
 import Z3.Monad qualified as Z
@@ -46,6 +46,12 @@ caseFxx = TransCase "Fxx" exampleFxx $ \ss -> do
 caseFxxyy :: TransCase
 caseFxxyy = TransCase "Fxxyy" exampleFxxyy (const (pure ()))
 
+caseFxInt :: TransCase
+caseFxInt = TransCase "Fx int" exampleFxInt (const (pure ()))
+
+caseFxInt2 :: TransCase
+caseFxInt2 = TransCase "Fx int 2" exampleFxInt2 (const (pure ()))
+
 testTranslate :: TestTree
 testTranslate =
   testGroup
@@ -54,10 +60,14 @@ testTranslate =
     , runTransCase caseFx
     , runTransCase caseFxx
     , runTransCase caseFxxyy
+    , runTransCase caseFxInt
+    , runTransCase caseFxInt2
     , showTransCase caseX ["(x)"]
     , showTransCase caseFx ["(f (x))"]
     , showTransCase caseFxx ["(f (x) (x))"]
     , showTransCase caseFxxyy ["(f (x) (x))", "(f (y) (y))"]
+    , showTransCase caseFxInt ["(f (x))"]
+    , showTransCase caseFxInt2 ["(f (x))"]
     ]
 
 runTransCase :: TransCase -> TestTree
@@ -86,8 +96,8 @@ runTransCase (TransCase name graphM act) = testUnit ("run " ++ name) $ do
   -- mm <- solve ss model
   -- liftIO (pPrint mm)
   act ss
-  mm <- solve ss model
-  case mm of
+  mm' <- solve ss model
+  case mm' of
     Just m -> do
       -- liftIO (pPrint graph)
       -- liftIO (pPrint m)
