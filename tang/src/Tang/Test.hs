@@ -6,14 +6,12 @@ import Tang.Test.Enumerate (testEnumerate)
 import Tang.Test.Search (testSearch)
 import Tang.Test.Solver (testSolver)
 import Tang.Test.Translate (testTranslate)
-import Tang.Test.UnionMap (testUm)
 
 main :: IO ()
 main = testMain $ \_ ->
   testGroup
     "Tang"
-    [ testUm
-    , testSearch
+    [ testSearch
     , testEnumerate
     , testDot
     , testSolver

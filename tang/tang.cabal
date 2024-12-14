@@ -40,11 +40,8 @@ library
       Tang.Test.Ring
       Tang.Test.Search
       Tang.Test.Solver
-      Tang.Test.State
       Tang.Test.Translate
-      Tang.Test.UnionMap
       Tang.Translate
-      Tang.UnionMap
       Tang.Util
   other-modules:
       Paths_tang
@@ -84,20 +81,20 @@ library
   build-depends:
       base >=4.12 && <5
     , containers
-    , int-like >=0.1.3
+    , int-like >=0.1.4
     , list-t
     , logict
     , mtl
     , nonempty-containers
     , optics
-    , placeholder
     , pretty-show
     , prettyprinter
-    , prop-unit >=0.1.3
+    , prop-unit >=0.1.4
     , recursion-schemes
     , text
     , these
     , transformers
+    , unimap
     , z3 >=411.0.1
   default-language: GHC2021
 
@@ -142,20 +139,20 @@ test-suite tang-test
   build-depends:
       base >=4.12 && <5
     , containers
-    , int-like >=0.1.3
+    , int-like >=0.1.4
     , list-t
     , logict
     , mtl
     , nonempty-containers
     , optics
-    , placeholder
     , pretty-show
     , prettyprinter
-    , prop-unit >=0.1.3
+    , prop-unit >=0.1.4
     , recursion-schemes
     , tang
     , text
     , these
     , transformers
+    , unimap
     , z3 >=411.0.1
   default-language: GHC2021

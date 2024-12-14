@@ -36,9 +36,9 @@ import Tang.Ecta
   , SymbolNode (..)
   )
 import Tang.Search (SearchM, SearchStrat, interleaveApplySeq, search)
-import Tang.UnionMap (UnionMap)
-import Tang.UnionMap qualified as UM
 import Tang.Util (forWithIndex_, modifyL, stateL, unionILM)
+import Unimap (UnionMap)
+import Unimap qualified as UM
 
 -- | A metavar id used as a key in the union map
 newtype SynthId = SynthId {unSynthId :: Int}
